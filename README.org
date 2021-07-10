@@ -1,0 +1,54 @@
+A show case of model driven developmet of web applications.
+
+Please checkout this [[./src/deployment/run-userdirectory-in-development-environment.org][document]] to run the application in developer's
+environment.
+
+*** To Fix
+
+**** request handling
+
+1. we do not need to check for =GET= and =POST= in request handlers that
+   have only one method registered on them. eg: =api.org:588= at =show_users()=
+
+2. We need to check for existence of keys in request handlers, and not
+   simply dereference the dictionary. eg: =show_users()=
+**** Add user API change
+We cannot create an admin user with =add_user=.
+Hence, remove the =role= parameter from the =add_user= API.
+make =role = "user"= by default.
+
+Remove =role= as a parameter from the REST API. Change =add_user=
+in system interface to set =role = "user"= by default.
+**** Have APIS return usage errors in JSON
+wrong API usage / wrong user input should not result in
+=4xx= or =5xx= errors.
+
+Rather, they should return a json object along the lines of
+
+#+BEGIN_SRC js
+{
+    status: "success" / "failure",
+    [error_message: "error_string"]
+    [other components on success]
+}
+#+END_SRC
+
+- Errors will have ="failure"=  and an associated error message
+- Success with have ="success"= and other associated data
+
+
+
+* urllib2.URLError
+#+BEGIN_EXAMPLE
+urllib2.URLError
+
+URLError: <urlopen error [Errno -2] Name or service not known>
+
+#+END_EXAMPLE
+
+If such an error occurs when authentication using google oauth, install nscd - [[http://stackoverflow.com/questions/21356781/urrlib2-urlopen-name-or-service-not-known-persists-when-starting-script-witho][reference]]
+
+#+BEGIN_EXAMPLE
+apt-get install nscd
+#+END_EXAMPLE
+

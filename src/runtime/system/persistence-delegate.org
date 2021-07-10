@@ -1,0 +1,853 @@
+#+TITLE: Persistence Delegate for the System
+#+AUTHOR: VLEAD
+#+DATE: [2016-08-04 Thu]
+#+SETUPFILE: ../../org-templates/level-2.org
+#+TAGS: boilerplate(b)
+#+EXCLUDE_TAGS: boilerplate
+#+OPTIONS: ^:nil
+
+
+* Persistence Delegate
+  Persistence Delegate encapsulates a set of functions where each function
+  performs a specific task.  With the use of the delegates, the core
+  implementation of the =system= is oblivious to what sort of objects it is
+  operating on.  The objects are either persistent or just objects.  The right
+  delegate is the one that in effect performs the operations. 
+
+  Even if a new environment where objects are persisted in a different way is
+  introduced, =system= does not alter but by plugging the right delegate
+  specific to the environment, =system= for that particular environment is
+  derived while not modifying the implementation. 
+
+** Initialize Persistence Delegate
+   Persistence Delegate provides all the methods that operate on persistence
+   objects.
+
+*** class_persistence_delegate 
+    Saves the list of entities that are present in the environment in the
+    initialization and implements the operations that operate on these initial
+    list of entities.
+
+#+NAME: class_persistence_delegate
+#+BEGIN_SRC python
+class PersistenceDelegate():
+    def __init__(self):
+        self.entities = {'session': Session,
+                         'name': Name,
+                         'email': Email,
+                         'role': Role,
+                         'user': User
+                        }
+
+#+END_SRC
+
+*** get_role_set
+#+NAME: get_role_set
+#+begin_src python
+    def get_role_set(self):
+        return Role.get_all()
+
+#+end_src
+
+*** get_user_set
+#+NAME: get_user_set
+#+begin_src python
+    def get_user_set(self):
+        return User.get_all()
+
+#+end_src
+
+*** Tests
+#+NAME: test_class_persistence_delegate
+#+BEGIN_SRC python
+class TestPersistenceDelegate(TestCase):
+    TESTING = True
+
+    def create_app(self):
+        app = create_app(config)
+        return app
+
+    def setUp(self):
+        db.create_all()
+        Config.populate_db()
+        self.delegate = PersistenceDelegate()
+        
+    def tearDown(self):
+        db.session.remove()
+        db.drop_all()
+        self.delegate = None
+   
+    def test_initialize_persistence_delegate(self):
+         print "test_initialize_persistence_delegate"
+         role_set = self.delegate.get_role_set()
+         user_set = self.delegate.get_user_set()
+         self.assertEqual(len(role_set), 2)
+         self.assertEqual(role_set[0].get_by_id(1).get("val"), 
+                              Config.admin_role)
+         self.assertEqual(len(user_set), 1)
+         self.assertEqual(user_set[0].get("roles")[0].get("val"),
+                              Config.admin_role)
+                              
+
+#+END_SRC
+
+
+** Other functions
+   Other functions that help =System= perform the operations. 
+
+*** Check if =user= already exists
+    This function checks if a user is already in the database of the =System=.
+#+NAME: user_exists
+#+BEGIN_SRC python
+    def user_exists(self, user):
+        if self.email_exists(user.get("email")):
+            return user == self.get_user(email=user.get("email"))
+        else:
+            return False
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_user_exists
+#+BEGIN_SRC python
+    def test_user_exists(self):
+         print "test_user_exists"
+         user = self.delegate.get_user_set()[0]
+         self.assertEqual(self.delegate.user_exists(user), True)
+
+#+END_SRC
+
+
+*** Check if =name= already exists
+    This function checks if a name is already in the database of the =System=.
+#+NAME: name_exists
+#+BEGIN_SRC python
+    def name_exists(self, name):
+        return name == self.get_name(val=name.get("val"))
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_name_exists
+#+BEGIN_SRC python
+    def test_name_exists(self):
+         print "test_name_exists"
+         name = Name(val=Config.admin_name)
+         self.assertEqual(self.delegate.name_exists(name), True)
+         name = Name(val="Temp user")
+         self.assertEqual(self.delegate.name_exists(name), False)
+
+#+END_SRC
+
+*** Check if =email= already exists
+    This function checks if email is already in the database of the =System=.
+#+NAME: email_exists
+#+BEGIN_SRC python
+    def email_exists(self, email):
+        return email == self.get_email(val=email.get("val"))
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_email_exists
+#+BEGIN_SRC python
+    def test_email_exists(self):
+         print "test_email_exists"
+         email = Email(val=Config.admin_email)
+         self.assertEqual(self.delegate.email_exists(email), True)
+         email = Email(val="abc@gnu.org")
+         self.assertEqual(self.delegate.email_exists(email), False)
+
+#+END_SRC
+
+*** Check if =role= already exists
+    This function checks if role is already in the database of the =System=.
+#+NAME: role_exists_in_system
+#+BEGIN_SRC python
+    def role_exists_in_system(self, role):
+        return role == self.get_role(val=role.get("val"))
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_role_exists_in_system
+#+BEGIN_SRC python
+    def test_role_exists_in_system(self):
+         print "test_role_exists"
+         role = Role(val=Config.admin_role)
+         self.assertEqual(self.delegate.role_exists_in_system(role), True)
+         role = Role(val="temp")
+         self.assertEqual(self.delegate.role_exists_in_system(role), False)
+
+#+END_SRC
+
+*** Check if =role= already exists for a user
+    This function checks if role is already is present for a given user.
+#+NAME: role_exists_for_user
+#+BEGIN_SRC python
+    def role_exists_for_user(self, role, user):
+        return role in self.get_roles_of_user(user)
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_role_exists_for_user
+#+BEGIN_SRC python
+    def test_role_exists_for_user(self):
+         print "test_role_exists_for_user"
+         user = self.delegate.get_user_set()[0]
+         role = Role(val=Config.admin_role)
+         self.assertEqual(self.delegate.role_exists_for_user(role, user), True)
+         role = Role(val="temp")
+         self.assertEqual(self.delegate.role_exists_for_user(role, user), False)
+
+#+END_SRC
+*** Check if user with role =admin= exists in the system
+    This function checks if a user with admin role exists in the system
+#+NAME: user_with_admin_role_exists
+#+BEGIN_SRC python
+    def user_with_admin_role_exists(self):
+        for user in self.get_user_set():
+            if self.is_admin(user):
+                return True
+
+        return False
+            
+#+END_SRC
+
+**** Tests
+#+NAME: test_user_with_admin_role_exists
+#+BEGIN_SRC python
+    def test_user_with_admin_role_exists(self):
+         print "test_user_with_admin_role_exists"
+         self.assertEqual(self.delegate.user_with_admin_role_exists(), True)
+         self.delegate.del_user(self.delegate.get_user(email=Email(val=Config.admin_email)))
+         self.assertEqual(self.delegate.user_with_admin_role_exists(), False)
+
+#+END_SRC
+
+*** Add a user to the system
+    This function adds a user to the database of the system.  When a name is
+    already present in the system, user's name is set to it before user is
+    saved to system. 
+#+NAME: add_user
+#+BEGIN_SRC python
+    def add_user(self, user):
+        name = user.get("name")
+        email = user.get("email")
+
+        # roles = []
+        # for role in user.get("roles"):
+        #     db_role = self.get_role(val=role.get("name"))
+        #     roles.append(db_role)
+
+        # user.set(roles=roles, do_not_save=True)
+        if not self.name_exists(name):
+            name.save()
+        # else:
+        #     name = self.get_name(val=name.get("name"))
+        #     user.set(name=name, do_not_save=True)
+            
+        email.save()
+        user.save()
+        return self.get_user(email=email)
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_add_user
+#+BEGIN_SRC python
+    def test_add_user(self):
+         print "test_add_user"
+         name=Name(val="some user")
+         email=Email(val="tt@kk.com")
+         user = User(name=name, email=email, 
+                         roles=[self.delegate.get_role(val=Config.user_role)])
+
+         user = self.delegate.add_user(user)
+         another_user = User(name=name,
+                                 email=Email(val="xyz@gnu.org"),
+                                 roles=[self.delegate.get_role(val=Config.user_role)])
+
+         user = self.delegate.add_user(another_user)
+
+         self.assertEqual(self.delegate.user_exists(user), True)
+         self.assertEqual(self.delegate.user_exists(another_user), True)
+
+#+END_SRC
+
+
+*** Delete a user from the system
+    This function deletes a user from the database maintained by the system.
+#+NAME: del_user
+#+BEGIN_SRC python
+    def del_user(self, user):
+        name = user.get("name")
+        email = user.get("email")
+        user.delete()
+        email.delete()
+        if self.get_user(name=name) is None:
+            name.delete()
+        
+        return user
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_del_user
+#+BEGIN_SRC python
+    def test_del_user(self):
+         print "test_del_user"
+
+         name=Name(val="some user")
+         email=Email(val="tt@kk.com")
+         user = User(name=name, email=email, 
+                         roles=self.delegate.get_role_set())
+
+         user = self.delegate.add_user(user)
+         self.assertEqual(self.delegate.user_exists(user), True)
+         self.delegate.del_user(user)
+         self.assertEqual(self.delegate.user_exists(user), False)
+
+#+END_SRC
+
+*** Return the users in the system
+    This function returns the list of users in the database maintained by the system.
+#+NAME: get_users
+#+BEGIN_SRC python
+    def get_users(self):
+        return self.get_user_set()
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_get_users
+#+BEGIN_SRC python
+    def test_get_users(self):
+         print "test_get_users"
+
+         name=Name(val="some user")
+         name.save()
+         email=Email(val="tt@kk.com")
+         email.save()
+         user = User(name=name, email=email, 
+                         role=self.delegate.get_role_set()[1])
+
+         user = self.delegate.add_user(user)
+         self.assertEqual(len(self.delegate.get_users()), 2)
+
+#+END_SRC
+
+
+*** Check if user has admin role
+    This function returns true if role of a user is admin.  A user has a list
+    of roles, and this list is mapped to booleans and later reduced to either a
+    =true= or a =false=.
+#+NAME: is_admin
+#+BEGIN_SRC python
+    def is_admin(self, user):
+        roles = user.get("roles")
+        ret_val = False
+        if roles:
+            ret_val = reduce(lambda a, b: a or b, \
+                                map(lambda role: \
+                                    role.get("val") == Config.admin_name, 
+                                    roles))
+        return ret_val
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_is_admin
+#+BEGIN_SRC python
+    def test_is_admin(self):
+         print "test_is_admin"
+
+         name=Name(val="some user")
+         name.save()
+         email=Email(val="tt@kk.com")
+         email.save()
+         user = User(name=name, email=email, 
+                         roles=[self.delegate.get_role(val=Config.user_role)])
+
+         user = self.delegate.add_user(user)
+
+         self.assertEqual(self.delegate.is_admin(user), False)
+
+         name=Name(val="some another user")
+         name.save()
+         email=Email(val="someanother@gnu.org")
+         email.save()
+         user = User(name=name, email=email,
+                        roles=[self.delegate.get_role(val=Config.admin_role)])
+
+         user = self.delegate.add_user(user)
+
+         self.assertEqual(self.delegate.is_admin(user), True)
+
+#+END_SRC
+
+
+*** Get an object
+    A generic function to find an object of type =cls= matching a given a criteria
+
+#+NAME: get_object
+#+BEGIN_SRC python
+    def get_object(self, cls, **kwargs):
+        ret_val = None
+        try:
+            ret_val = cls.apply_filters(**kwargs)[0]
+        except NotFoundError as e:
+            ret_val = None
+        
+        return ret_val
+
+#+END_SRC
+
+
+*** Get Name 
+    This function returns a Name object from the database based on the name
+    string provided.
+
+#+NAME: get_name
+#+BEGIN_SRC python
+    def get_name(self, **kwargs):
+        return self.get_object(Name, **kwargs)
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_get_name
+#+BEGIN_SRC python
+    def test_get_name(self):
+         print "test_get_name"
+         name_obj = self.delegate.get_name(val=Config.admin_name)
+         self.assertEqual(name_obj.get("val"), Config.admin_name)
+
+#+END_SRC
+
+
+*** Get Email
+    This function returns an Email object from the database based on the email
+    string provided.
+
+#+NAME: get_email
+#+BEGIN_SRC python
+    def get_email(self, **kwargs):
+        return self.get_object(Email, **kwargs)
+    
+#+END_SRC
+
+**** Tests
+#+NAME: test_get_email
+#+BEGIN_SRC python
+    def test_get_email(self):
+         print "test_get_email"
+         email_obj = self.delegate.get_email(val=Config.admin_email)
+         self.assertEqual(email_obj.get("val"), Config.admin_email)
+
+#+END_SRC
+
+
+*** Get Role
+    This function returns either admin or user role from the roles in database
+#+NAME: get_role
+#+BEGIN_SRC python
+    def get_role(self, **kwargs):
+        return self.get_object(Role, **kwargs)
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_get_role
+#+BEGIN_SRC python
+    def test_get_role(self):
+         print "test_get_role"
+         role_obj = self.delegate.get_role(val=Config.admin_role)
+         self.assertEqual(role_obj.get("val"), Config.admin_role)
+
+#+END_SRC
+
+
+*** Get =Roles= of a =User=
+    This function returns all the roles associates with a user
+#+NAME: get_roles_of_user
+#+BEGIN_SRC python
+    def get_roles_of_user(self, user):
+        user = self.get_user(email=user.get("email"))
+        return user.get("roles")
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_get_roles_of_user
+#+BEGIN_SRC python
+    def test_get_roles_of_user(self):
+         print "test_get_roles_of_user"
+         roles = self.delegate.get_roles_of_user(self.delegate.get_admin_user())
+         self.assertEqual(roles[0].get("val"), Config.admin_role)
+
+#+END_SRC
+
+*** Get =length of roles= of a =User=
+    This function returns length of roles associated with a user
+#+NAME: get_roles_length_of_user
+#+BEGIN_SRC python
+    def get_roles_length_of_user(self, user):
+        user = self.get_user(email=user.get("email"))
+        return len(user.get("roles"))
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_get_roles_length_of_user
+#+BEGIN_SRC python
+    def test_get_roles_length_of_user(self):
+         print "test_get_roles_length_of_user"
+         length = self.delegate.get_roles_length_of_user(self.delegate.get_admin_user())
+         self.assertEqual(length, 1)
+
+#+END_SRC
+
+*** Get the =admin= role
+#+NAME: get_admin_role
+#+begin_src python
+    def get_admin_role(self):
+        return self.get_role(val=Config.admin_role)
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_get_admin_role
+#+BEGIN_SRC python
+    def test_get_admin_role(self):
+         print "test_get_admin_role"
+         role = self.delegate.get_admin_role()
+         self.assertEqual(role.get("val"), Config.admin_role)
+
+#+END_SRC
+
+
+*** Get User
+    This function returns a user if present in the database.  If the user is
+    not present, =None= type is returned.
+#+NAME: get_user
+#+BEGIN_SRC python
+    def get_user(self, **kwargs):
+        return self.get_object(User, **kwargs)
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_get_user
+#+BEGIN_SRC python
+    def test_get_user(self):
+         print "test_get_user"
+         email = Email(val=Config.admin_email)
+         user_obj = self.delegate.get_user(email=email)
+         self.assertEqual(user_obj.get("email").get("val"), 
+                              Config.admin_email)
+
+#+END_SRC
+
+
+*** Get user with admin role
+    This function returns the user the admin role from the database
+#+NAME: get_admin_user
+#+BEGIN_SRC python
+    def get_admin_user(self):
+        email = Email(val=Config.admin_email)
+        return self.get_user(email=email)
+        
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_get_admin_user
+#+BEGIN_SRC python
+    def test_get_admin_user(self):
+         print "test_get_admin_user"
+         self.assertEqual(self.delegate.get_admin_user(),
+                              self.delegate.get_user_set()[0])
+
+#+END_SRC
+
+
+*** Get user by Email
+    This function returns the user by email from the database
+#+NAME: get_user_by_email
+#+BEGIN_SRC python
+    def get_user_by_email(self, email):
+        return self.get_user(email=email)
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_get_user_by_email
+#+BEGIN_SRC python
+    def test_get_user_by_email(self):
+        print "test_get_user_by_email"
+        email = Email(val=Config.admin_email)
+        user = self.delegate.get_user_by_email(email)
+        self.assertEqual(user.get("email"), email)
+
+        email = Email(val="tt@kk.com")
+        email.save()
+        user = self.delegate.get_user_by_email(email)
+        self.assertEqual(user, None)
+
+#+END_SRC
+
+*** Mask roles of a User
+    This function masks the roles of a user
+#+NAME: mask_roles_of_user
+#+BEGIN_SRC python
+    def mask_roles_of_user(self, user):
+        new_user = User(name=user.get("name"), email=user.get("email"), roles=[])
+        new_user.set_hidden_id(new_user, user.id)
+        return new_user
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_mask_roles_of_user
+#+BEGIN_SRC python
+    def test_mask_roles_of_user(self):
+        print "test_mask_roles_of_user"
+        email = Email(val=Config.admin_email)
+        user = self.delegate.get_user_by_email(email)
+        user = self.delegate.mask_roles_of_user(user)
+
+        self.assertEqual(user.get("roles"), [])
+        self.assertEqual(user.to_client()['id'], str(1))
+
+#+END_SRC
+
+*** Set Email of a User
+    This function sets Email of a user in the user set. No exception is thrown
+    here, the upper layer which is calling this function should ensure =user=
+    exists whose email is changed. 
+#+NAME: set_email
+#+BEGIN_SRC python
+    def set_email(self, user, email):
+        usr = self.get_user_by_email(user.get("email"))
+
+        if self.get_email(val=email.get("val")) is None:
+            email.save()
+            email = self.get_email(val=email.get("val"))
+            
+        usr.set(email=email)
+        return self.get_user_by_email(usr.get("email"))
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_set_email
+#+BEGIN_SRC python
+    def test_set_email(self):
+        print "test_set_email"
+        email = Email(val=Config.admin_email)
+        user = self.delegate.get_user_by_email(email)
+        email = Email(val="abc@gnu.org")
+        user = self.delegate.set_email(user, email)
+        self.assertEqual(user.get("email"), email)
+
+#+END_SRC
+
+
+*** Set Name of a User
+    This function sets Name of a user in the user set. No exception is thrown
+    here, the upper layer which is calling this function should ensure =user=
+    exists whose name is changed. 
+#+NAME: set_name
+#+BEGIN_SRC python
+    def set_name(self, user, name):
+        usr = self.get_user_by_email(user.get("email"))
+
+        if self.get_name(val=name.get("val")) is None:
+            name.save()
+            name = self.get_name(val=name.get("val"))
+
+        usr.set(name=name)
+        return self.get_user(name=usr.get("name"))
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_set_name
+#+BEGIN_SRC python
+    def test_set_name(self):
+        print "test_set_name"
+        email = Email(val=Config.admin_email)
+        user = self.delegate.get_user_by_email(email)
+        name = Name(val="Jimi Hendrix")
+        user = self.delegate.set_name(user, name)
+        self.assertEqual(user.get("name"), name)
+
+#+END_SRC
+
+*** Add a role to the user in the system
+#+NAME: add_role_to_user
+#+BEGIN_SRC python 
+    def add_role_to_user(self, role, user):
+        user = self.get_user(email=user.get("email"))
+        roles = user.get("roles")
+        role = self.get_role(val=role.get("val"))
+        roles.append(role)
+        user.set(roles=roles)
+        return self.get_user(email=user.get("email"))
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_add_role_to_user
+#+BEGIN_SRC python
+    def test_add_role_to_user(self):
+        print "test_add_role_to_user"
+        user = self.delegate.get_user(email=Email(val=Config.admin_email))
+        self.assertTrue(len(user.get("roles")) == 1)
+        user_role = Role(val=Config.user_role)
+        user_with_new_role = self.delegate.add_role_to_user(user_role, user)
+        self.assertTrue(len(user_with_new_role.get("roles")) == 2)
+        user = self.delegate.get_user(email=Email(val=Config.admin_email))
+
+#+END_SRC
+
+
+
+*** Delete a role of the user in the system
+#+NAME: del_role_of_user
+#+BEGIN_SRC python 
+    def del_role_of_user(self, role, user):
+        user = self.get_user(email=user.get("email"))
+        roles = user.get("roles")
+        roles.remove(role)
+        user.set(roles=roles)
+        return self.get_user(email=user.get("email"))
+
+#+END_SRC
+
+**** Tests
+#+NAME: test_del_role_of_user
+#+BEGIN_SRC python
+    def test_del_role_of_user(self):
+        print "test_del_role_of_user"
+        user = self.delegate.get_user(email=Email(val=Config.admin_email))
+        self.assertTrue(len(user.get("roles")) == 1)
+
+        user_role = Role(val=Config.user_role)
+        user_with_new_role = self.delegate.add_role_to_user(user_role, user)
+        self.assertTrue(len(user_with_new_role.get("roles")) == 2)
+
+        user_with_one_less_role = self.delegate.del_role_of_user(user_role, user_with_new_role)
+        self.assertTrue(len(user_with_one_less_role.get("roles")) == 1)
+
+#+END_SRC
+
+
+
+* Infra                                                         :boilerplate:
+
+** sources
+*** Imports 
+#+name: imports_for_sources
+#+BEGIN_SRC python
+# -*- coding: utf-8 -*-
+from runtime.persistence.entities import *
+from runtime.config.config import Config
+from runtime.exceptions.custom_exceptions import *
+
+#+end_src
+
+
+** Tests
+*** Imports 
+#+name: imports_for_tests
+#+BEGIN_SRC python
+# -*- coding: utf-8 -*-
+import unittest
+from flask_testing import TestCase
+from sqlalchemy.exc import IntegrityError
+from persistence_delegate import *
+from runtime.rest.app import create_app
+
+config = {
+    'SQLALCHEMY_DATABASE_URI': ''
+}
+
+#+end_src
+
+
+*** Running tests
+#+NAME: run_test_cases
+#+BEGIN_SRC python
+if __name__ == '__main__':
+    unittest.main()
+
+#+END_SRC
+
+
+* Tangling                                                      :boilerplate:
+
+** sources
+#+BEGIN_SRC python :tangle persistence_delegate.py :eval no :noweb yes
+<<imports_for_sources>>
+<<class_persistence_delegate>>
+<<get_role_set>>
+<<get_user_set>>
+<<get_object>>
+<<get_user>>
+<<get_role>>
+<<get_email>>
+<<get_admin_user>>
+<<get_admin_role>>
+<<get_user_by_email>>
+<<user_exists>>
+<<email_exists>>
+<<get_roles_of_user>>
+<<get_roles_length_of_user>>
+<<is_admin>>
+<<add_user>>
+<<name_exists>>
+<<set_email>>
+<<set_name>>
+<<get_name>>
+<<del_user>>
+<<role_exists_for_user>>
+<<role_exists_in_system>>
+<<add_role_to_user>>
+<<user_with_admin_role_exists>>
+<<del_role_of_user>>
+<<mask_roles_of_user>>
+
+#+END_SRC
+
+
+** tests
+#+BEGIN_SRC python :tangle test_persistence_delegate.py :eval no :noweb yes
+<<imports_for_tests>>
+<<test_class_persistence_delegate>>
+<<test_get_user>>
+<<test_get_admin_user>>
+<<test_get_admin_role>>
+<<test_get_user_by_email>>
+<<test_user_exists>>
+<<test_email_exists>>
+<<test_get_roles_of_user>>
+<<test_get_roles_length_of_user>>
+<<test_is_admin>>
+<<test_add_user>>
+<<test_name_exists>>
+<<test_get_name>>
+<<test_set_email>>
+<<test_set_name>>
+<<test_del_user>>
+<<test_role_exists_for_user>>
+<<test_role_exists_in_system>>
+<<test_add_role_to_user>>
+<<test_user_with_admin_role_exists>>
+<<test_del_role_of_user>>
+<<test_mask_roles_of_user>>
+<<run_test_cases>>
+
+#+END_SRC

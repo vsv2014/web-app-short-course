@@ -1,0 +1,783 @@
+#+TITLE: Data Model for User Directory Application
+#+AUTHOR: VLEAD
+#+DATE: [2016-05-11 Wed]
+#+PROPERTY: results output
+#+PROPERTY: exports code
+#+SETUPFILE: ../org-templates/level-1.org
+#+options: ^:nil
+#+LATEX: Literal LaTeX code for export
+
+* Introduction
+  The application or the system is abstracted as the data model.  The model
+  captures: the entities that comprise the system; relations and constraints
+  between these entities; and operations that entail a change in the state of
+  the system.
+
+
+* Notation
+  The system is defined as the data model.  There is a certain notation that is
+  used defining the data model. 
+
+** Sets, cardinality and relations
+
+If =A= is a set, then
+    1. =A!= denotes exactly one element of =A=.
+    2. =A?= denotes at most one element of =A=.
+    3. =A+= denotes  one or more elements of =A=
+    4. =A*=  denotes at zero or more elements of =A=.  Often
+       abbreviated as =A=.
+    5. =A > B= denotes a relation /from/ =A= /to/ =B=.
+
+** Relations and their cardinality type
+
+A relation =r:A > B= could relate each element of =A= to
+zero, one or more elements of =B=.
+
+|--------------------------------+-----------+---+---|
+| Cardinality of B               | Notation  |   |   |
+|--------------------------------+-----------+---+---|
+| at least zero elements of =B=. | r: A > B  |   |   |
+|--------------------------------+-----------+---+---|
+| at most one element of =B=     | r: A > B? |   |   |
+|--------------------------------+-----------+---+---|
+| at least one element of =B=    | r: A > B+ |   |   |
+|--------------------------------+-----------+---+---|
+| exactly one element of =B=     | r: A > B! |   |   |
+|--------------------------------+-----------+---+---|
+   
+** Example of Entity Relationship notation
+   This example gives a formal representation of the requirement [[file:~/vlead-projects/bitbucket/web-app-short-course/src/requirements/index.org::#req_user][User]].
+#+begin_example
+ [email, user] : User? > Email!
+#+end_example
+
+Encodes the following items of information:
+
+ - =email= is a relation /from/ the set =User= /to/ the set
+   =Email=.
+
+ - =User= is called the /domain/ of the relation =email=.
+
+ - =Email= is called the /codomain/ of the relation =email=.
+
+ - The relation =email= relates each element of =User= to
+   /exactly one/ element of =Email=.  This is written as 
+
+ #+begin_example
+ email: User > Email!
+ #+end_example
+
+ - =user= is a relation /from/ the set =Email= /to/ the set
+   =User=.
+
+ - =Email= is called the /domain/ of the relation =user=.
+
+ - =User= is called the /codomain/ of the relation =user=.
+
+ - The relation =user= relates each element of =Email= to
+   /at most one/ element of =User=.  This is written as 
+
+ #+begin_example
+ user: Email > User?
+ #+end_example
+
+
+* Abstract Entity Types
+  The following are the abstract data types in our system. 
+** User
+:PROPERTIES:
+:CUSTOM_ID: entity_user
+:END: 
+  Requirement satisfied: [[../requirements/index.org::#req_user][User]]
+
+#+BEGIN_SRC spec :tangle spec.txt
+;;; Entity Types
+TYPE User
+
+#+END_SRC
+
+** Email
+:PROPERTIES:
+:CUSTOM_ID: entity_email
+:END: 
+  Requirement satisfied: [[../requirements/index.org::#req_user_identification][Email]]
+#+BEGIN_SRC spec :tangle spec.txt
+TYPE Email
+
+#+END_SRC
+
+** Name
+:PROPERTIES:
+:CUSTOM_ID: entity_name
+:END: 
+  Requirement satisfied: [[../requirements/index.org::#req_user_name][Name]]
+#+BEGIN_SRC spec :tangle spec.txt
+TYPE Name
+
+#+END_SRC
+
+** Role
+:PROPERTIES:
+:CUSTOM_ID: entity_role
+:END: 
+  Requirement satisfied: [[../requirements/index.org::#req_role][Role]]
+#+BEGIN_SRC spec :tangle spec.txt
+TYPE Role = {admin, user}
+#+END_SRC
+
+** Session
+:PROPERTIES:
+:CUSTOM_ID: entity_session
+:END: 
+  Requirement satisfied: [[../requirements/index.org::#req_session][Session]]
+#+BEGIN_SRC spec :tangle spec.txt
+TYPE Session
+
+#+END_SRC
+
+
+* Relations and cardinality constraints over entity types 
+  :PROPERTIES:
+  :CUSTOM_ID: cardinal_constraints
+  :END: 
+  +For each relation, we define its inverse next to it.+
+
+  Meets requirements [[../requirements/index.org::#req_user_uniqueness][uniqueness of a user]], [[../requirements/index.org::#req_user_role][role of a user]] and [[../requirements/index.org::#req_session_constraints][session constraints]]
+
+#+BEGIN_SRC spec :tangle spec.txt
+;;; Relations with cardinality constraints
+email : User > Email!
+user  : Email > User?
+name  : User  > Name!
+users : Name  > User
+roles : User  > Role+
+users : Role  > User
+user  : Session > User!
+role  : Session > Role!
+sessions: User  > Session
+sessions: Role  > Session
+#+END_SRC
+
+
+  #+BEGIN_HTML
+  <p>   The following diagram summarizes all the cardinality constraints
+  across all entities.
+  </p>
+  <img src="https://docs.google.com/drawings/d/1960E6vwRV9OqUOaUfyOU07btK4hQJLSyZwy1TOPeOF4/pub?w=960&h=720"
+  <p align="center"> Entity Diagram </p>
+  #+END_HTML
+
+  To edit the image click [[https://docs.google.com/drawings/d/1960E6vwRV9OqUOaUfyOU07btK4hQJLSyZwy1TOPeOF4/edit?usp%3Dsharing][here]].
+
+
+* Keys
+
+An entity =K= is called a /key for/ an entity =A= if there
+is a relation =r: A? > K!=.
+
+|---------+-------------|
+| Entity  | Key         |
+|---------+-------------|
+| User    | Email       |
+|---------+-------------|
+| Session | (User,Role) |
+|---------+-------------|
+
+
+* System state
+  The system's state is captured by a set of /state variables/.
+
+** Primary Entity sets
+:PROPERTIES:
+:CUSTOM_ID: user_session_sets
+:END:    
+   For the purpose of /the application/, we maintain two primary state
+   variables.
+
+   user-set meets the requirement [[../requirements/index.org::#req_user_composition][user composition]] and session-set meets the
+   requirement [[../requirements/index.org::#req_session_login][mandatory login]]
+   
+#+BEGIN_SRC spec :tangle spec.txt
+
+;;; Primary state variables
+ user-set    : set[User]    ; set of users in the system
+ session-set : set[Session] ; set of sessions in the system
+
+#+END_SRC
+
+and five relations
+
+#+BEGIN_SRC spec :tangle spec.txt
+;;; Relations
+ email:      User > Email!
+ name :      User > Name!
+ roles:      User > Role+
+ user:       Session > User!
+
+#+END_SRC
+
+** Applying relations to sets
+#+begin_example
+1.role = admin
+2.role = user
+5.role = user
+{1,2,5}.role = {admin, user,user} = {admin, user}
+
+{1,2,5}.succ = {2,3,6}
+{1,2,6}.factors = {{1}, {1,2}, {1,2,3,6}}
+{1,2,6}.factors.union = {{1}, {1,2}, {1,2,3,6}}.union = {1,2,3,6}
+#+end_example
+
+** Derived Entity sets
+   
+#+BEGIN_SRC spec :tangle spec.txt
+;;; Derived Entity sets
+ email-set   : set[Email]   = user-set.email        ; set of emails in the system
+ name-set    : set[Name]    = user-set.name         ; set of names in the system
+ role-set    : set[Role]    = user-set.role         ; set of all roles of all users
+ logged-in-user-set : set[User]   = session-set.user   
+ logged-in-role-set :  set[Role]  = session-set.role
+
+#+END_SRC
+
+** Referential Integrity Constraints over entity-sets
+
+*** Admin User
+:PROPERTIES:
+:CUSTOM_ID: admin_user
+:END:    
+    There is at least one user with the role =admin=.
+    This rule meets requirement [[../requirements/index.org::#req_role_admin][user with admin role]].
+
+*** Referential Integrity over primary and derived entity sets
+:PROPERTIES:
+:CUSTOM_ID: referential_constraints
+:END:
+   Meets requirements [[../requirements/index.org::#req_user_uniqueness][uniqueness of a user]], [[../requirements/index.org::#req_user_role][role of a user]] and [[../requirements/index.org::#req_session_constraints][session constraints]]
+
+#+BEGIN_SRC spec :tangle spec.txt
+;;; Relation variables with Referential Integrity
+[email, user]     :  user-set!    > email-set!
+[name, users]     :  user-set+    > name-set!    
+[roles, users]    :  user-set+    > role-set+
+[user, sessions]  :  session-set  > user-set!
+[role, session]   :  session-set  > role-set!
+
+#+END_SRC
+
+
+* Operations 
+CRUD operations.  
+
+Each operation is performed on an entity instance or an
+entity-set.   The operation may take additional parameters.
+It also takes as a  parameter of the credentials of the
+actor performing the operation.
+
+ - C  create a user      
+ - R  read from a user   
+ - U  update a user      
+ - D  delete a user      
+
+** Actor
+   Operations are performed by Actors.  Our application has two types of
+   actors: =system= and =session=.
+
+*** Authorize a user for Login
+    A user is associated with multiple roles but each login session of a user
+    is associated with a specific role.  The first step in the login use case
+    is to check if the user exists in the user set.  The second step is to
+    allow the user to associate a role to that particular session.
+
+**** Operation
+     :PROPERTIES:
+     :CUSTOM_ID: login-first-step-op
+     :END:
+     loginFirstStep(u:User)
+**** Actor Credentials
+     :PROPERTIES:
+     :CUSTOM_ID: login-first-step-auth
+     :END:
+     nothing to check
+**** Referential Integrity
+     :PROPERTIES:
+     :CUSTOM_ID: login-first-step-ref
+     :END:
+     u:user-set
+**** Result
+     :PROPERTIES:
+     :CUSTOM_ID: login-first-step-result
+     :END:
+     return roles of user or failure
+
+
+*** Associate a role to a login session
+    The second step ensures every session in the session set is uniquely
+    identified by a user and a role.  This means, a user can have multiple
+    sessions but each session of a user is uniquely identified by a role.  In
+    other words a user cannot have multiple sessions with a same role.  A
+    session is made up of a user, a role and a key.
+
+**** Operation
+     :PROPERTIES:
+     :CUSTOM_ID: login-second-step-op
+     :END:
+     loginSecondStep(s:Session)
+**** Actor Credentials
+     :PROPERTIES:
+     :CUSTOM_ID: login-second-step-auth
+     :END:
+     nothing to check
+**** Referential Integrity
+     :PROPERTIES:
+     :CUSTOM_ID: login-second-step-ref
+     :END:
+     s:~session-set
+**** Result
+     :PROPERTIES:
+     :CUSTOM_ID: login-second-step-result
+     :END:
+     return new session or failure
+
+
+
+*** Logout
+    Logout ensures the session is deleted from the session set.
+
+**** Operation
+     :PROPERTIES:
+     :CUSTOM_ID: logout-op
+     :END:
+
+     logout(s:Session)
+
+**** Actor Credentials
+     :PROPERTIES:
+     :CUSTOM_ID: logout-auth
+     :END:
+
+     nothing to check
+
+**** Referential Integrity
+     :PROPERTIES:
+     :CUSTOM_ID: logout-ref
+     :END:
+
+     s:session-set
+
+**** Result
+     :PROPERTIES:
+     :CUSTOM_ID: logout-result
+     :END:
+
+     return removed session or failure
+
+
+*** Add User
+    A user is added with the default role =user=.
+**** Operation
+     :PROPERTIES:
+     :CUSTOM_ID: add-user-op
+     :END:
+     addUser(u:User, s:Session)
+**** Actor Credentials
+     :PROPERTIES:
+     :CUSTOM_ID: add-user-auth
+     :END:
+     s.role=admin
+**** Referential Integrity
+     :PROPERTIES:
+     :CUSTOM_ID: add-user-ref
+     :END:
+     u:~user-set AND
+     s:session-set  AND
+     u.role = user-role
+**** Result
+     :PROPERTIES:
+     :CUSTOM_ID: add-user-result
+     :END:
+     return user or failure
+
+
+*** Show Users
+    The information contained for each user in the user-set that is returned is
+    user's name and email.
+
+**** Operation
+     :PROPERTIES:
+     :CUSTOM_ID: show-users-op
+     :END:
+
+     showUsers(s: Session)            
+
+**** Actor Credentials
+     :PROPERTIES:
+     :CUSTOM_ID: show-users-auth
+     :END:
+
+     s.role=admin OR
+     s.role = user
+
+**** Referential Integrity
+     :PROPERTIES:
+     :CUSTOM_ID: show-users-ref
+     :END:
+
+     s:session-set
+**** Result
+     :PROPERTIES:
+     :CUSTOM_ID: show-users-result
+     :END:
+     return user or failure
+
+
+*** Show User Details
+    User's name, email and roles are returned when a user is identified by an
+    email. 
+
+**** Operation
+     :PROPERTIES:
+     :CUSTOM_ID: show-user-details-op
+     :END:
+
+     showUserDetails(e:Email, s: Session)
+
+**** Actor Credentials
+     :PROPERTIES:
+     :CUSTOM_ID: show-user-details-auth
+     :END:
+
+     s.role=admin OR                
+     (s.role = user AND
+     s.user.email = e) 
+
+**** Referential Integrity
+     :PROPERTIES:
+     :CUSTOM_ID: show-user-details-ref
+     :END:
+
+     s:session-set AND
+     e: email-set 
+
+**** Result
+     :PROPERTIES:
+     :CUSTOM_ID: show-user-details-result
+     :END:
+
+     return user or failure
+
+
+*** Set Name of a User
+    Given a user and a name, the user's name is set to the given name. 
+
+**** Operation
+     :PROPERTIES:
+     :CUSTOM_ID: set-name-op
+     :END:
+
+     setName(u:User, n:Name, s:session)
+
+**** Actor Credentials
+     :PROPERTIES:
+     :CUSTOM_ID: set-name-auth
+     :END:
+
+     s.role=admin OR                
+     (s.role = user AND
+     s.user = u) 
+
+**** Referential Integrity
+     :PROPERTIES:
+     :CUSTOM_ID: set-name-ref
+     :END:
+
+     u:user-set AND
+     s:session-set 
+
+**** Result
+     :PROPERTIES:
+     :CUSTOM_ID: set-name-result
+     :END:
+
+     return user or failure
+
+
+*** Set Email of a User
+    Given a user and an email, the user's email is set to the given name. 
+
+**** Operation
+     :PROPERTIES:
+     :CUSTOM_ID: set-email-op
+     :END:
+
+     setEmail(u:User, e:Email, s:session)
+
+**** Actor Credentials
+     :PROPERTIES:
+     :CUSTOM_ID: set-email-auth
+     :END:
+
+     s.role=admin OR                
+     (s.role = user AND
+     s.user = u) 
+
+**** Referential Integrity
+     :PROPERTIES:
+     :CUSTOM_ID: set-email-ref
+     :END:
+     
+     u:user-set AND
+     s:session-set AND
+     e:~email-set
+
+**** Result
+     :PROPERTIES:
+     :CUSTOM_ID: set-email-result
+     :END:
+
+     return user or failure
+
+
+*** Get User by Email
+    Return user, but the roles are masked. 
+
+**** Operation
+     :PROPERTIES:
+     :CUSTOM_ID: get-user-by-email-op
+     :END:
+
+     getUserByEmail(e: Email, s:Session)
+     
+**** Actor Credentials
+     :PROPERTIES:
+     :CUSTOM_ID: get-user-by-email-auth
+     :END:
+
+     s.role = admin OR
+     s.role = user
+
+**** Referential Integrity
+     :PROPERTIES:
+     :CUSTOM_ID: get-user-by-email-ref
+     :END:
+
+     s:session-set
+
+**** Result
+     :PROPERTIES:
+     :CUSTOM_ID: get-user-by-email-result
+     :END:
+
+     return user or None or failure
+
+
+*** Delete User
+    A user cannot delete self.  A user with admin role has the ability to
+    delete another user with admin role.
+
+**** Operation
+     :PROPERTIES:
+     :CUSTOM_ID: del-user-op
+     :END:
+
+     delUser(u: User, s: Session)
+
+**** Actor Credentials
+     :PROPERTIES:
+     :CUSTOM_ID: del-user-auth
+     :END:
+
+     s.role=admin
+
+**** Referential Integrity
+     :PROPERTIES:
+     :CUSTOM_ID: del-user-ref
+     :END:
+
+     u:user-set   
+     s:session-set
+     u ~= s.user  
+
+**** Result
+     :PROPERTIES:
+     :CUSTOM_ID: del-user-result
+     :END:
+
+     return deleted user or failure
+
+*** Get Role set in the system.
+    Get all the roles in the system.
+
+**** Operation
+     :PROPERTIES:
+     :CUSTOM_ID: get-role-set-op
+     :END:
+
+     getRoles(s:Session)
+
+**** Actor Credentials
+     :PROPERTIES:
+     :CUSTOM_ID: get-role-set-auth
+     :END:
+
+     s.role = admin OR
+     s.role = user
+
+**** Referential Integrity
+     :PROPERTIES:
+     :CUSTOM_ID: get-role-set-ref
+     :END:
+
+     s:session-set
+
+**** Result
+     :PROPERTIES:
+     :CUSTOM_ID: get-role-set-result
+     :END:
+
+     return role set in the system. 
+
+
+*** Get Roles of a User
+    Get all the roles of a user.
+
+**** Operation
+     :PROPERTIES:
+     :CUSTOM_ID: get-roles-op
+     :END:
+
+     getRoles(u: user, s:Session)
+
+**** Actor Credentials
+     :PROPERTIES:
+     :CUSTOM_ID: get-roles-auth
+     :END:
+
+     s.role=admin OR
+     (s.user = u  AND
+      s.role = user)
+
+**** Referential Integrity
+     :PROPERTIES:
+     :CUSTOM_ID: get-roles-ref
+     :END:
+
+     u:user-set   
+     s:session-set
+
+**** Result
+     :PROPERTIES:
+     :CUSTOM_ID: get-roles-result
+     :END:
+
+     return roles of a user or failure
+
+*** Add Role
+    Add a role to an existing user
+
+**** Operation
+     :PROPERTIES:
+     :CUSTOM_ID: add-role-op
+     :END:
+
+     addRole(u: user, s:Session, r:Role)
+
+**** Actor Credentials
+     :PROPERTIES:
+     :CUSTOM_ID: add-role-auth
+     :END:
+
+     s.role = admin
+
+**** Referential Integrity
+     :PROPERTIES:
+     :CUSTOM_ID: add-role-ref
+     :END:
+
+     u:user-set AND
+     s:session-set AND
+     r:role-set AND
+     r not in u.role_set
+
+**** Result
+     :PROPERTIES:
+     :CUSTOM_ID: add-role-result
+     :END:
+
+     return roles of a user or failure
+
+
+
+*** Delete Role
+    Delete a role of an existing user
+
+**** Operation
+     :PROPERTIES:
+     :CUSTOM_ID: del-role-op
+     :END:
+
+     delRole(u: user, s:Session)
+
+**** Actor Credentials
+     :PROPERTIES:
+     :CUSTOM_ID: del-role-auth
+     :END:
+
+     s.role = admin
+
+**** Referential Integrity
+     :PROPERTIES:
+     :CUSTOM_ID: del-role-ref
+     :END:
+
+     u:user-set AND
+     s:session-set AND
+     u ~= s.user  AND
+     r:role-set AND
+     r in u.role_set AND
+     u.num_roles > 1
+
+     Since only user with admin role can delete roles of other users and not of
+     self,  this rule ensures that there is always a user with admin role. 
+
+**** Result
+     :PROPERTIES:
+     :CUSTOM_ID: del-role-result
+     :END:
+
+     return roles of a user or failure
+
+
+
+*** Show Sessions
+    Return the session set
+
+**** Operation
+     :PROPERTIES:
+     :CUSTOM_ID: show-sessions-op
+     :END:
+
+     showSessions(s:Session)
+     
+**** Actor Credentials
+     :PROPERTIES:
+     :CUSTOM_ID: show-sessions-auth
+     :END:
+
+     s.role = admin
+
+**** Referential Integrity
+     :PROPERTIES:
+     :CUSTOM_ID: show-sessions-ref
+     :END:
+
+     s:session-set
+
+**** Result
+     :PROPERTIES:
+     :CUSTOM_ID: show-sessions-result
+     :END:
+
+     return session set or failure
+
+

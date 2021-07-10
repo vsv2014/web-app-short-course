@@ -1,0 +1,187 @@
+#+TITLE: WebApp (User Directory) Short Course
+#+Author: VLEAD
+#+Date: [2016-05-05 Thu]
+#+PROPERTY: results output
+#+PROPERTY: exports code
+#+SETUPFILE: ./org-templates/level-0.org
+#+options: ^:nil
+
+* Introduction
+  This document helps in setting up development environment to run the
+  =userdirectory= application. 
+
+* Rename sample config files
+  After cloning the =web-app-short-course=, copy
+  =src/runtime/config/custom-config.org.sample= to
+  =src/runtime/config/custom-config.org=
+
+* Installation of Database
+
+** Checking if =mysql= is installed
+
+If the command
+#+BEGIN_SRC bash :eval no
+which mysql
+#+END_SRC
+returns nothing, then =mysql= is not installed.
+
+** Installing =mysql=
+** Checking if installed version is running as a service
+#+BEGIN_SRC bash :eval no
+/etc/init.d/mysql status
+#+END_SRC
+If this returns something like =mysql start/running, process
+<pid>=, then =mysql= is running.  Otherwise it is not
+running and you will need to start it.
+** Starting =mysql= if it not running
+
+#+BEGIN_SRC bash :eval no
+sudo /etc/init.d/mysql start
+#+END_SRC
+
+** Resetting the =mysql= password.
+See
+https://support.rackspace.com/how-to/mysql-resetting-a-lost-mysql-root-password/
+
+Note that the section "Stop and start the MySQL service" has
+a mistake: you need to start mysql; trying to stop it will
+give you an error.  Simply ignore the stop command. 
+
+ - First stop =mysql=:
+#+BEGIN_SRC bash :eval no
+sudo /etc/init.d/mysql stop
+#+END_SRC
+ - 
+
+
+* Creation of database
+  1. Login to mysql
+     #+BEGIN_EXAMPLE
+     mysql -u <username> -p<password>
+     #+END_EXAMPLE
+  2. Show all databases
+     #+BEGIN_EXAMPLE
+     show databases;
+     #+END_EXAMPLE
+  3. If <userdirectory> database is not present, create it
+     #+BEGIN_EXAMPLE
+     create database userdirectory;
+     #+END_EXAMPLE
+  
+     Exit our of the mysql console
+
+* Initial make
+  Run make from =web-app-short-course= directory to build the application.  The
+  code gets tangled but the test cases will fail.  This is because some of the
+  dependencies have not been set up.  To insall the dependencies and run the
+  application, follow the steps listed below.
+
+#+BEGIN_EXAMPLE
+% make
+#+END_EXAMPLE
+
+* Creation of Virtual Environment
+
+  + Create Virtual Environemnt in the =web-app-short-course= directory
+  #+BEGIN_EXAMPLE
+  virtualenv venv
+  #+END_EXAMPLE
+  + Activate the Virtual Environment
+  #+BEGIN_EXAMPLE
+  source venv/bin/activate
+  #+END_EXAMPLE
+
+* Setting up dependencies
+  Install all the dependencies for running the =user-directory= applciation.
+  The =setup.py= script is in the =build/code/deployment= directory
+  #+BEGIN_EXAMPLE
+  cd <path to build/code/deployment> directory
+  python setup.py install
+  #+END_EXAMPLE
+
+  If below problem occurs (reference stackoverflow [[http://stackoverflow.com/questions/7475223/mysql-config-not-found-when-installing-mysqldb-python-interface][post]])
+  #+BEGIN_EXAMPLE
+  oursqlx/oursql.c:8:22: fatal error: pyconfig.h: No such file or directory
+  #include "pyconfig.h"
+                      ^
+  compilation terminated.
+  error: Setup script exited with error: command 'x86_64-linux-gnu-gcc' failed
+  with exit status 1
+  #+END_EXAMPLE
+
+  Do the following
+  #+BEGIN_EXAMPLE
+  sudo su -
+  apt-get install libmysqlclient-dev
+  apt-get install python-dev
+  #+END_EXAMPLE
+
+
+* Set SQLALCHEMY_DATABASE_URI
+  The variable =SQLALCHEMY_DATABASE_URI= has to be set to proper value in
+  =src/runtime/config/custom-config.org= so that the application can
+  use the database.  In the example below, =root= is the user and =mysql= is
+  the password.
+  #+BEGIN_EXAMPLE
+  SQLALCHEMY_DATABASE_URI = 'mysql+oursql://root:mysql@localhost/userdirectory'
+  #+END_EXAMPLE
+
+* Export PYTHONPATH
+  Set PYTHONPATH variable and export it to access python modules. 
+#+BEGIN_EXAMPLE
+cd build/code/
+export PYTHONPATH=${PWD}:$PYTHONPATH
+#+END_EXAMPLE
+
+* [[./google-oauth-configuration.org][Obtain Google OAuth Credentials]]
+* Configure OAuth for Application
+  Edit =src/runtime/config/custom-config.org= to set =CONSUMER_KEY= and
+  =CONSUMER_SECRET= that were obtained from the previous step. 
+  
+  This is necessary for the current application to use Google OAUTH service.
+
+  #+BEGIN_EXAMPLE
+    CONSUMER_KEY = "<key>"
+    CONSUMER_SECRET = "<key>"
+  #+END_EXAMPLE
+
+* Run Make again
+  The =make= this time should pass.  Change directory to =web-app-short-course=
+  and run =make=.
+
+#+BEGIN_EXAMPLE
+% make
+#+END_EXAMPLE
+
+* Insert Dafault data
+  Edit =build/code/runtime/config/config.py= and set =admin-email= to
+  have a valid admin user when the web app launches.
+  #+BEGIN_SRC python 
+    # config.py
+    # ---------
+    
+    admin_email = "<your google email id which was used to create OAuth credentials>"
+  #+END_SRC
+ 
+  Run =build/code/deployment/db_setup.py= to insert roles and an admin user. 
+  #+BEGIN_SRC shell
+    # db_setup.py
+    # -----------
+    
+    cd build/code/deployment
+    python db_setup.py
+  #+END_SRC
+  
+* Run the application
+  
+  The application can now be run from the =build/code= directory
+  #+BEGIN_EXAMPLE
+  cd <path to build/code directory>
+  unset http_proxy
+  unset https_proxy
+  python runtime/rest/app.py
+  #+END_EXAMPLE
+
+* Access the application
+  
+  The application is accessed at =http://localhost:5000=

@@ -1,0 +1,1174 @@
+#+TITLE: User Directory Application: System
+#+AUTHOR: VLEAD
+#+DATE: [2016-06-07 Tue]
+#+SETUPFILE: ../../org-templates/level-2.org
+#+TAGS: boilerplate(b)
+#+EXCLUDE_TAGS: boilerplate
+#+OPTIONS: ^:nil
+
+* Introduction
+
+A system has clear boundaries of input, output and state.
+In the context of our application, the system interacts with
+the external world (through command line function calls)
+and also manages the entity objects in such a way that the
+system invariants are maintained. 
+
+
+The system holds two state variables:
+
+ - =user_set= :: The set of users in the system
+ - =session_set= :: The set of sessions in the system
+
+The system's inputs are in terms of /operations/.  Each
+operation consists of an operation name and a sequence of
+arguments.  
+
+In this implementation, an operation is identified by a
+class.  The dictionary =ops_table= maps operation names to
+their corresponding classes.
+
+Each operation is divided into five checks.  A /check/ is a
+predicate that either returns true or throws an exception.
+
+The following checks are performed:
+
+  - Arity check :: checks if the operation has the right
+       number  of arguments.
+
+  - Type check :: checks if the arguments have the correct
+       type. 
+
+  - Auth check :: checks if the session performing the
+       operation is authorized to do so.
+
+  - State check :: checks if the operation meets all the
+       constraints imposed by the state of the system
+       (referential integrity constraints, etc.)
+ 
+
+** Structure of each operation class
+
+The class corresponding to each operation has five fields:
+
+  - arg_types :: a list of type predicates.  The length of
+       this list is the arity of the operation.  The arity
+       check is simply a comparison of the length of this
+       list with the length of the list of arguments.  Each
+       predicate in the =arg_types= list is applied to the
+       corresponding argument to check the type of that
+       argument.
+
+  - auth_check :: a function that checks if the  =args= (which
+       may include a session) together satisfy the
+       authorization conditions imposed by the operation. 
+
+  - state_check :: a function that checks =args= and checks
+       if the particular state invariant holds.
+
+  - action :: a function on args that (presumably) changes
+       the state of the system and also returns an answer.
+       An exception thrown by this function indicates a
+       serious failure in the application (e.g., out of
+       memory error). 
+
+
+* The =System= class
+  There is only one =System= in the application.
+** Constructor
+
+   This is the generic =System= implementation.  The entities that make up the
+   sytem can be pure objects or objects that can be persisted.
+
+   The specific tasks on the composed objects is agnostic to the =system=.
+   This is achieved by defining an API that the system uses and is implemented
+   by composed entity set.
+
+   The system is initialized based on what the system should be composed of.
+
+#+NAME: class_system
+#+BEGIN_SRC python
+class System ():
+    
+    def __init__(self):
+        raise Error('Can not instantiate')
+
+    @staticmethod
+    def initialize_system(cls):
+        System.delegate = cls()
+        System.session_set = []
+
+#+END_SRC
+
+
+** Session for authorization
+   The authorization checks that the =system= performs require a set of
+   operations to determine validity of a session or to find the type of user
+   within a session.  
+
+   Though a =user= can be associated with multiple =roles=, in a session a
+   =user= is associated with a single =role=.
+
+   These operations are implemented as part of the =system=.  At a later date,
+   if a need for a different session management arises, the new session manager
+   will provide this same /API/.
+
+
+#+NAME: session_for_authorization
+#+BEGIN_SRC python
+    @staticmethod
+    def is_session_valid(session):
+        return (session.get("key") == KEY and
+                    System.session_exists(session))
+
+    @staticmethod
+    def session_exists(session):
+        return session in System.session_set
+
+    @staticmethod
+    def session_exists_for_same_user_and_role(new_session):
+        ret_val = False
+        bool_map = map(lambda session: \
+                           new_session.get("user") == session.get("user") \
+                           and new_session.get("role") == session.get("role"),\
+                           System.session_set)
+
+        if bool_map:
+            ret_val = reduce(lambda a, b: a or b, bool_map)
+
+        return ret_val
+
+    @staticmethod
+    def is_session_admin(session):
+        return session.get("role").get("val") == Config.admin_role
+
+    @staticmethod
+    def is_session_user(session):
+        return session.get("role").get("val") == Config.user_role
+
+#+END_SRC
+
+*** Test Constructor
+    For every test case, the runtime environment is created at the start and is
+    torn after the test is run.  Such an environment here is made of persistent
+    entities.
+#+NAME: test_constructor
+#+BEGIN_SRC python
+class TestSystemConstructor(TestCase):
+    TESTING = True
+
+    def create_app(self):
+        app = create_app(config)
+        return app
+
+    def setUp(self):
+        db.create_all()
+        System.initialize_system(PersistenceDelegate)
+        Config.populate_db()
+
+    def tearDown(self):
+        System.delegate = None
+        System.session_set = []
+
+    def test_delegate(self):
+        print "test_delegate"
+        self.assertEqual(isinstance(System.delegate, PersistenceDelegate), 
+                             True)
+
+    def test_system_constructor(self):
+        print "test_system_constructor"
+        self.assertEqual(System.delegate.get_admin_user().get("name").get("val"),
+                         Config.admin_name)
+        self.assertEqual(System.delegate.get_admin_user().get("email").get("val"),
+                         Config.admin_email)
+        self.assertEqual(System.delegate.get_admin_user().get('roles')[0].get('val'),
+                         Config.admin_role)
+
+    def test_is_session_admin(self):
+        print "test_is_session_admin"
+        admin_user = System.delegate.get_admin_user()
+        admin_role = System.delegate.get_admin_role()
+        session = Session(user=admin_user, role=admin_role, key="abcde")
+        System.session_set.append(session)
+        self.assertEqual(System.is_session_admin(session), True)
+
+    def test_is_session_user(self):
+        print "test_is_session_user"
+        admin_user = System.delegate.get_admin_user()
+        user_role = Role(val=Config.user_role)
+        session = Session(user=admin_user, role=user_role, key="abcde")
+        System.session_set.append(session)
+        self.assertEqual(System.is_session_user(session), True)
+
+    def test_session_exists(self):
+        print "test_session_exists"
+        admin_user = System.delegate.get_admin_user()
+        admin_role = System.delegate.get_admin_role()
+        session = Session(user=admin_user, role=admin_role, key="abcde")
+        System.session_set.append(session)
+        self.assertEqual(System.session_exists(session), True)
+
+
+    def test_session_exists_for_same_user_and_role(self):
+        print "test_session_exists_for_same_user_and_role"
+        admin_user = System.delegate.get_admin_user()
+        admin_role = System.delegate.get_admin_role()
+        session1 = Session(user=admin_user, role=admin_role, key="abcde")
+        session2 = Session(user=admin_user, role=admin_role, key="12345")
+        System.session_set.append(session1)
+        self.assertEqual(System.session_exists_for_same_user_and_role(session1), True)
+
+#+END_SRC
+
+
+** Arity and Type check methods 
+   Arity Check ensures that correct number of arguments are passed to a
+   functions.  Type Check ensures that the type of the arguments passed to a
+   function are same as expected.
+   
+   Any operation, before being executed is subjected to =Arity= and =Type=
+   checks.
+
+#+NAME: arity_type_checks
+#+BEGIN_SRC python
+   
+    @staticmethod
+    def arity_check(args, n):
+       if  (len(args) != n) :
+          raise ArityError("arity mismatch: size of args  does not " + 
+                           "match operation arity " )
+
+    @staticmethod
+    def type_check(args, arg_types):
+        for key, value in args.iteritems():
+            if not arg_types[key](value):
+                raise TypeError("type mismatch: argument %s is not of "
+                                "type %s" % (value, key))
+
+#+end_src
+
+*** Test Arity and Type Checks
+#+NAME: test_arity_and_types
+#+BEGIN_SRC python
+    def test_arity(self):
+        print "test_arity"
+        with self.assertRaises(ArityError):
+            System.arity_check([1,2], 3)
+
+    def test_type_checks(self):
+        print "test_type_checks"
+        args = {"question": Question(name="why", question_type="radio"),
+                "answer": Question(name="where", question_type="radio")
+                }
+
+        arg_types = {"question": is_question,
+                     "answer": is_answer
+                     }
+
+        with self.assertRaises(TypeError):
+            System.type_check(args, arg_types)
+
+#+END_SRC
+
+
+* =do= method 
+   The =do= method is the main work-horse of =System= which is construed as the
+   =Controller=.  Every operation follows a template and realized as a class
+   that defines:
+   1. Number of Arguments
+   2. Type of Arguments
+   3. Who is allowed to perform the operation
+   4. Referential integrity checks and finally
+   5. the operation that changes state of the system. 
+
+
+#+NAME: do_function
+#+begin_src python
+    @staticmethod   
+    def do(op, **args):
+        cls = ops_table[op]
+        arg_types  = cls.arg_types
+        auth_check = cls.auth_check
+        state_check = cls.state_check
+        arity_and_type_checks_needed = cls.arity_and_type_checks_needed
+        try:
+            if arity_and_type_checks_needed:
+               System.arity_check(args.keys(), len(arg_types.keys()))
+               System.type_check(args, arg_types)
+            auth_check(args)
+            state_check(args)
+            return cls.action(args)
+        except (ArityError, TypeError, NotAuthorizedError, StateError) as err:
+            raise err
+
+#+end_src
+
+
+* Operations
+  Operations provide the mechanism to either change or retrieve the state of
+  the system.  While the system state is changed, it is imperative to maintain
+  the invariant of the system.  Before the actual change in system is made,
+  each operation goes through a series of checks:
+  1. Arity Check - ensures the right number of arguments are provided to
+     the operation.
+  2. Type Check - ensures the arguments are of right type
+  3. Auth Check - ensures only the authorized can perform the operation
+  4. State Check - ensures System invariant is maintained
+
+  Once these checks are satisfied, either the system state is modified or retrieved.
+
+** =LoginFirstStep=
+   In the current system, a user is associated with either one or two roles.
+   If the user is associated with one role, the login session is associated
+   with that role.  If the user has two roles,  role =user= is associated with
+   the login session.  After the successful logn, the user has the ability to
+   switch between the roles. 
+
+   Refer [[../../data-model/index.org::#login-first-step-auth][auth-check]] and referential [[../../data-model/index.org::#login-first-step-ref][integrity]] rules.
+
+#+NAME: class_login_first_step
+#+BEGIN_SRC python
+class LoginFirstStep():
+    from runtime.objects.entities import is_user
+    arg_types = {"user": is_user}
+    arity_and_type_checks_needed = True
+
+    @staticmethod
+    def auth_check(args):
+        pass
+
+    @staticmethod
+    def state_check(args):
+        user = args["user"]
+        if not System.delegate.user_exists(user):
+            raise StateError("user %s does not exist in System"
+                                % user.to_client())
+        
+    @staticmethod
+    def action(args):
+        user = args["user"]
+        user_from_system = System.delegate.get_user(email=user.get("email"))
+        roles = user_from_system.get("roles")
+        if len(roles) == 1:
+            return roles[0]
+        else:
+            return System.delegate.get_role(val=Config.user_role)
+
+#+END_SRC
+
+
+** =LoginSecondStep=
+      
+   Create a session.  This is done after a user us authorized.  Currently there
+   is no mechanism to expire a session.  And any login attempt with a
+   successful authorization will create a session.
+
+*** This is not implemented
+
+    The second step ensures every session in the session set is uniquely
+    identified by a user and a role.  This means, a user can have multiple
+    sessions but each session of a user is uniquely identified by a role.  In
+    other words a user cannot have multiple sessions with a same role.
+
+    A session is made up of a user, a role and a key.  A new login attempt
+    might have a different key, but the fact that a session exists for a user
+    and a role is sufficient to raise a state error.  Refer [[../../data-model/index.org::#login-second-step-auth][auth-check]] and
+    referential [[../../data-model/index.org::#login-second-step-ref][integrity]] rules.
+
+#+NAME: class_login_second_step
+#+BEGIN_SRC python
+class LoginSecondStep():
+    from runtime.objects.entities import is_session
+    arg_types = {"session": is_session}
+    arity_and_type_checks_needed = True
+
+    @staticmethod
+    def auth_check(args):
+        pass
+
+    @staticmethod
+    def state_check(args):
+        pass
+        # session = args["session"]
+
+        # if System.session_exists_for_same_user_and_role(session):
+        #     raise StateError("session %s already exists in System"
+        #                          % session.to_client())
+        
+    @staticmethod
+    def action(args):
+        session = args["session"]
+        System.session_set.append(session)
+        return session
+
+#+END_SRC
+
+
+** =Logout=
+   Logout ensures the session is deleted from the session set.  Refer
+   [[../../data-model/index.org::#logout-auth][auth-check]] and referential [[../../data-model/index.org::#logout-ref][integrity]] rules.
+
+#+NAME: class_logout
+#+BEGIN_SRC python
+class Logout():
+    from runtime.objects.entities import is_session
+    arg_types = {"session": is_session}
+    arity_and_type_checks_needed = True
+
+    @staticmethod
+    def auth_check(args):
+        pass
+
+    @staticmethod
+    def state_check(args):
+        session = args["session"]
+
+        if not System.session_exists(session):
+            raise StateError("session %s does not exist in System"
+                                 % session.to_client())
+    @staticmethod
+    def action(args):
+        session = args["session"]
+        System.session_set.remove(session)
+        return session
+
+#+END_SRC
+
+
+** =AddUser=
+   A user is added to the system.  Refer [[../../data-model/index.org::#add-user-auth][auth-check]] and referential [[../../data-model/index.org::#add-user-ref][integrity]]
+   rules.
+#+NAME: class_add_user
+#+begin_src python
+class AddUser():
+    from runtime.objects.entities import is_user, is_session
+    arg_types = {"user": is_user, "session": is_session}
+    arity_and_type_checks_needed = True
+
+    @staticmethod
+    def auth_check(args):
+        session = args['session']
+        if not (System.is_session_admin(session)):
+            raise NotAuthorizedError("User with role %s" 
+                                " not Authorized to perform this action"
+                                % session.to_client())
+
+    @staticmethod
+    def state_check(args):
+        user = args["user"]
+        session = args["session"]
+
+        if not System.session_exists(session):
+            raise StateError("session %s does not exist in System"
+                                % session.to_client())
+        elif System.delegate.user_exists(user):
+            raise StateError("user %s already exists in System"
+                                % user.to_client())
+        elif System.delegate.is_admin(user):
+            raise StateError("A user with role admin cannot be added")
+
+    @staticmethod
+    def action(args):
+        user = args["user"]
+        user = System.delegate.add_user(user)
+        return user
+
+#+END_SRC
+
+
+** =ShowUsers=
+   User's name and email is returned for every user in the set returned.  The
+   users fetched by the delegate contain information about the roles for each
+   user.  But the contract for =showusers= is to provide =name= and =email= of
+   a user.  Therefore, before the user list is returned, the roles of each user
+   are masked.  
+
+   Refer [[../../data-model/index.org::#show-users-auth][auth-check]] and referential [[../../data-model/index.org::#show-users-ref][integrity]] rules.
+
+#+NAME: class_show_users
+#+BEGIN_SRC python
+class ShowUsers():
+    from runtime.objects.entities import is_session
+    arg_types = {"session": is_session}
+    arity_and_type_checks_needed = True
+
+    @staticmethod
+    def auth_check(args):
+        session = args['session']
+        if not ((System.is_session_admin(session)) or 
+                (System.is_session_user(session))):
+            raise NotAuthorizedError("Role not Authorized to perform this action")
+
+    @staticmethod
+    def state_check(args):
+        session = args["session"]
+
+        if not System.session_exists(session):
+            raise StateError("session %s does not exist in System"
+                                % session.to_client())
+
+    @staticmethod
+    def action(args):
+        users = System.delegate.get_user_set()
+        users_to_return = []
+        for user in users:
+            new_user = System.delegate.mask_roles_of_user(user)
+            users_to_return.append(new_user)
+
+        return users_to_return
+                                
+#+END_SRC
+
+
+** =ShowUserDetails=
+   User's name, email and roles are returned for the user identified by email.
+   Refer [[../../data-model/index.org::#show-user-details-auth][auth-check]] and referential [[../../data-model/index.org::#show-user-details-ref][integrity]] rules.
+
+#+NAME: class_show_user_details
+#+BEGIN_SRC python
+class ShowUserDetails():
+    from runtime.objects.entities import is_session, is_email
+    arg_types = {"session": is_session, "email": is_email}
+    arity_and_type_checks_needed = True
+
+    @staticmethod
+    def auth_check(args):
+        session = args['session']
+        email = args['email']
+        if not ((System.is_session_admin(session)) or 
+                (System.is_session_user(session) and
+                     session.get("user").get("email") == email)):
+            raise NotAuthorizedError("Role not Authorized to perform this action")
+
+    @staticmethod
+    def state_check(args):
+        session = args["session"]
+        email = args['email']
+
+        if not (System.session_exists(session) and
+                    System.delegate.email_exists(email)):
+            raise StateError("session: %s or email: %s does not exist in System"
+                                % (session.to_client(), email.to_client()))
+
+    @staticmethod
+    def action(args):
+        email = args['email']
+        return System.delegate.get_user_by_email(email)
+                                
+#+END_SRC
+
+
+** =SetName=
+   Set the name of an existing user to a new value.  Refer [[../../data-model/index.org::#set-name-auth][auth-check]] and
+   referential [[../../data-model/index.org::#set-name-ref][integrity]] rules.
+
+#+NAME: class_set_name
+#+BEGIN_SRC python
+class SetName():
+    from runtime.objects.entities import is_user, is_name, is_session
+    arg_types = {"user": is_user, 
+                 "name": is_name, 
+                 "session": is_session
+                }
+
+    arity_and_type_checks_needed = True
+
+    @staticmethod
+    def auth_check(args):
+        session = args['session']
+        user = args["user"]
+        
+        if not (System.is_session_admin(session) or
+                    user == session.get("user")):
+            raise NotAuthorizedError("User with role %s" 
+                                " not Authorized to perform this action"
+                                % session.to_client())
+
+    @staticmethod
+    def state_check(args):
+        session = args["session"]
+        user = args["user"]
+
+        if not System.session_exists(session):
+            raise StateError("session %s does not exist in System"
+                                % session.to_client())
+
+        elif not System.delegate.user_exists(user):
+            raise StateError("user %s does not exist in System"
+                                % user.to_client())
+
+    @staticmethod
+    def action(args):
+        user = args["user"]
+        name = args["name"]
+        user = System.delegate.set_name(user, name)
+        return user
+
+#+END_SRC
+
+
+** =SetEmail=
+   Set the name of an existing user to a new value.  Refer [[../../data-model/index.org::#set-email-auth][auth-check]] and
+   referential [[../../data-model/index.org::#set-email-ref][inftegrity]] rules.
+   
+#+NAME: class_set_email
+#+BEGIN_SRC python
+class SetEmail():
+    from runtime.objects.entities import is_user, is_email, is_session
+    arg_types = {"user": is_user, 
+                 "email": is_email, 
+                 "session": is_session
+                }
+
+    arity_and_type_checks_needed = True
+
+    @staticmethod
+    def auth_check(args):
+        session = args['session']
+        user = args["user"]
+        
+        if not (System.is_session_admin(session) or
+                    user == session.get("user")):
+            raise NotAuthorizedError("User with role %s" 
+                                " not Authorized to perform this action"
+                                % session.to_client())
+
+    @staticmethod
+    def state_check(args):
+        session = args["session"]
+        user = args["user"]
+        email = args["email"]
+
+        if not System.session_exists(session):
+            raise StateError("session %s does not exist in System"
+                                % session.to_client())
+
+        elif not System.delegate.user_exists(user):
+            raise StateError("user %s does not exist in System"
+                                % user.to_client())
+
+        elif System.delegate.get_user_by_email(email) is not None:
+            raise StateError("Another user exists with the email %s in System"
+                                % email.to_client())
+
+    @staticmethod
+    def action(args):
+        user = args["user"]
+        email = args["email"]
+        user = System.delegate.set_email(user, email)
+        return user
+
+#+END_SRC
+
+
+** =GetUserByEmail=
+   If the user exists, the user is returned.  If the user does not exist, None
+   object is returned.  It is up to the upper layer to interpret the returned
+   value.  There are no state or auth checks here.
+
+   The roles are masked before the user is returned
+
+#+NAME: class_get_user_by_email
+#+BEGIN_SRC python
+class GetUserByEmail():
+    from runtime.objects.entities import is_email, is_session
+    arg_types = {"email": is_email}
+    arity_and_type_checks_needed = True
+
+    @staticmethod
+    def auth_check(args):
+        pass
+
+    @staticmethod
+    def state_check(args):
+        pass
+        
+    @staticmethod
+    def action(args):
+        email = args["email"]
+        user = System.delegate.get_user_by_email(email)
+        if user is not None:
+            user = System.delegate.mask_roles_of_user(user)
+        return user
+
+#+END_SRC
+
+
+** =DelUser=
+   Delete an existing user from the system.  Refer [[../../data-model/index.org::#del-user-auth][auth-check]] and
+   referential [[../../data-model/index.org::#del-user-ref][inftegrity]] rules.
+
+#+NAME: class_del_user
+#+BEGIN_SRC python
+class DelUser():
+    from runtime.objects.entities import is_user, is_session
+    arg_types = {"user": is_user, "session": is_session}
+    arity_and_type_checks_needed = True
+
+    @staticmethod
+    def auth_check(args):
+        session = args['session']
+        if not (System.is_session_admin(session)):
+            raise NotAuthorizedError("Role not Authorized to perform this action")
+
+    @staticmethod
+    def state_check(args):
+        user = args["user"]
+        session = args["session"]
+
+        if not System.session_exists(session):
+            raise StateError("session %s does not exist in System"
+                                % session.to_client())
+        
+        elif user == session.get("user"):
+            raise StateError("logged user %s cannot delete himself"
+                                 % user.to_client())
+
+        elif not System.delegate.user_exists(user):
+            raise StateError("user %s does not exist in System"
+                                % user.to_client())
+
+        #elif System.delegate.is_admin(user):
+        #     raise StateError("A user with role admin cannot be deleted")
+
+    @staticmethod
+    def action(args):
+        user = args["user"]
+        user_from_system = System.delegate.get_user(email=user.get("email"))
+        user = System.delegate.del_user(user_from_system)
+        return user
+
+#+END_SRC
+
+
+** =GetRoleSet=
+   Get the role set in the system.  Refer [[../../data-model/index.org::#get-role-set-auth][auth-check]] and referential [[../../data-model/index.org::#get-role-set-ref][integrity]]
+   rules.
+   
+#+NAME: class_get_role_set
+#+BEGIN_SRC python
+class GetRoleSet():
+    from runtime.objects.entities import is_session
+    arg_types = {"session": is_session}
+
+    arity_and_type_checks_needed = True
+
+    @staticmethod
+    def auth_check(args):
+        session = args['session']
+        
+        if not (System.is_session_admin(session) or
+                System.is_session_user(session)):
+            raise NotAuthorizedError("User with role %s" 
+                                " not Authorized to perform this action"
+                                % session.to_client())
+
+    @staticmethod
+    def state_check(args):
+        session = args["session"]
+
+        if not System.session_exists(session):
+            raise StateError("session %s does not exist in System"
+                                % session.to_client())
+
+    @staticmethod
+    def action(args):
+        return System.delegate.get_role_set()
+
+#+END_SRC
+
+
+** =GetRolesOfUser=
+   Get the roles of a user.  Refer [[../../data-model/index.org::#get-roles-auth][auth-check]] and referential [[../../data-model/index.org::#get-roles-ref][integrity]] rules.
+   
+#+NAME: class_get_roles_of_user
+#+BEGIN_SRC python
+class GetRolesOfUser():
+    from runtime.objects.entities import is_user, is_session
+    arg_types = {"user": is_user, 
+                 "session": is_session
+                }
+
+    arity_and_type_checks_needed = True
+
+    @staticmethod
+    def auth_check(args):
+        session = args['session']
+        user = args["user"]
+        
+        if not (System.is_session_admin(session) or
+                    user == session.get("user")):
+            raise NotAuthorizedError("User with role %s" 
+                                " not Authorized to perform this action"
+                                % session.to_client())
+
+    @staticmethod
+    def state_check(args):
+        session = args["session"]
+        user = args["user"]
+
+        if not System.session_exists(session):
+            raise StateError("session %s does not exist in System"
+                                % session.to_client())
+
+        elif not System.delegate.user_exists(user):
+            raise StateError("user %s does not exist in System"
+                                % user.to_client())
+
+    @staticmethod
+    def action(args):
+        user = args["user"]
+        roles = System.delegate.get_roles_of_user(user)
+        return roles
+
+#+END_SRC
+
+
+** =AddRole=
+   Add a role to a user.  Refer [[../../data-model/index.org::#add-role-auth][auth-check]] and referential [[../../data-model/index.org::#add-role-ref][integrity]] rules.
+   
+#+NAME: class_add_role_to_user
+#+BEGIN_SRC python
+class AddRoleToUser():
+    from runtime.objects.entities import is_user, is_session, is_role
+    arg_types = {"user": is_user, 
+                 "session": is_session,
+                 'role': is_role
+                }
+
+    arity_and_type_checks_needed = True
+
+    @staticmethod
+    def auth_check(args):
+        session = args['session']
+        user = args["user"]
+        role = args["role"]
+        
+        if not (System.is_session_admin(session)):
+            raise NotAuthorizedError("User with role %s" 
+                                " not Authorized to perform this action"
+                                % session.to_client())
+
+    @staticmethod
+    def state_check(args):
+        session = args["session"]
+        user = args["user"]
+        role = args["role"]
+
+        if not System.session_exists(session):
+            raise StateError("session %s doeps not exist in System"
+                                % session.to_client())
+
+        elif not System.delegate.user_exists(user):
+            raise StateError("user %s does not exist in System"
+                                % user.to_client())
+
+        elif not System.delegate.role_exists_in_system(role):
+            raise StateError("role %s does not exist in System"
+                                % role.to_client())
+
+        elif System.delegate.role_exists_for_user(role, user):
+            raise StateError("role %s already exists for user %s"
+                                % (role.to_client(), user.to_client()))
+
+    @staticmethod
+    def action(args):
+        user = args["user"]
+        role = args["role"]
+
+        user = System.delegate.add_role_to_user(role, user)
+        return user
+
+#+END_SRC
+
+
+** =DeleteRole=
+   Delete a role of a user.  Refer [[../../data-model/index.org::#del-role-auth][auth-check]] and referential [[../../data-model/index.org::#del-role-ref][integrity]] rules.
+   
+#+NAME: class_del_role_of_user
+#+BEGIN_SRC python
+class DelRoleOfUser():
+    from runtime.objects.entities import is_user, is_session, is_role
+    arg_types = {"user": is_user, 
+                 "session": is_session,
+                 'role': is_role
+                }
+
+    arity_and_type_checks_needed = True
+
+    @staticmethod
+    def auth_check(args):
+        session = args['session']
+        
+        if not (System.is_session_admin(session)):
+            raise NotAuthorizedError("User with role %s" 
+                                " not Authorized to perform this action"
+                                % session.to_client())
+
+    @staticmethod
+    def state_check(args):
+        session = args["session"]
+        user = args["user"]
+        role = args["role"]
+
+        if not System.session_exists(session):
+            raise StateError("session %s does not exist in System"
+                                % session.to_client())
+
+        elif user == session.get("user"):
+            raise StateError("logged user %s cannot delete self role"
+                                 % user.to_client())
+
+        elif not System.delegate.user_exists(user):
+            raise StateError("user %s does not exist in System"
+                                % user.to_client())
+
+        elif not System.delegate.role_exists_in_system(role):
+            raise StateError("role %s does not exist in System"
+                                % role.to_client())
+
+        elif not System.delegate.role_exists_for_user(role, user):
+            raise StateError("role %s does not exist for user %s"
+                                % (role.to_client(), user.to_client()))
+
+        elif not (System.delegate.get_roles_length_of_user(user) > 1):
+            raise StateError("number of roles of the user %s is not greater "
+                                 "than one" % role.to_client())
+
+    @staticmethod
+    def action(args):
+        user = args["user"]
+        role = args["role"]
+
+        user = System.delegate.del_role_of_user(role, user)
+        return user
+
+#+END_SRC
+
+
+** =ShowSession=
+   Show all the current sessions.  Refer [[../../data-model/index.org::#show-sessions-auth][auth-check]] and referential [[../../data-model/index.org::#show-sessions-ref][integrity]]
+   rules.
+   
+#+NAME: class_show_sessions
+#+BEGIN_SRC python
+class ShowSessions():
+    from runtime.objects.entities import is_session
+    arg_types = {"session": is_session}
+
+    arity_and_type_checks_needed = True
+
+    @staticmethod
+    def auth_check(args):
+        session = args['session']
+        
+        if not (System.is_session_admin(session)):
+            raise NotAuthorizedError("User with role %s" 
+                                " not Authorized to perform this action"
+                                % session.to_client())
+
+    @staticmethod
+    def state_check(args):
+        session = args["session"]
+
+        if not System.session_exists(session):
+            raise StateError("session %s does not exist in System"
+                                % session.to_client())
+
+    @staticmethod
+    def action(args):
+        return System.session_set
+
+#+END_SRC
+
+*** Tests
+#+NAME: test_show_sessions
+#+BEGIN_SRC python
+class TestShowSessions(TestCase):
+    TESTING = True
+
+    def create_app(self):
+        app = create_app(config)
+        return app
+
+    def setUp(self):
+        db.create_all()
+        System.initialize_system(PersistenceDelegate)
+        Config.populate_db()
+
+    def tearDown(self):
+        System.delegate = None
+        System.session_set = []
+
+    def test_show_sessions_passes(self):
+        print "test_show_sessions_passes"
+        admin_user=System.delegate.get_admin_user()
+        admin_role = System.delegate.get_role(val=Config.admin_role)
+        user_role = System.delegate.get_role(val=Config.user_role)
+
+        user = User(name=Name(val="me mine myself"),
+                                  email=Email(val="abc@gnu.org"),
+                                  roles=[user_role, admin_role])
+
+        System.delegate.add_user(user)           
+        admin_session = Session(user=admin_user, role=admin_role, key="12345")
+        user_session = Session(user=user, role=user_role, key="abcde")
+
+        System.session_set.append(admin_session)        
+        System.session_set.append(user_session)
+
+        session = System.do("show_sessions", 
+                            session=admin_session)
+
+        self.assertEquals(len(session), 2)
+
+    def test_show_sessions_raises_auth_error(self):
+        print "test_show_sessions_raises_auth_error"
+        admin_user=System.delegate.get_admin_user()
+        admin_role = System.delegate.get_role(val=Config.admin_role)
+        user_role = System.delegate.get_role(val=Config.user_role)
+
+        user = User(name=Name(val="me mine myself"),
+                                  email=Email(val="abc@gnu.org"),
+                                  roles=[user_role, admin_role])
+
+        System.delegate.add_user(user)           
+        admin_session = Session(user=admin_user, role=admin_role, key="12345")
+        user_session = Session(user=user, role=user_role, key="abcde")
+
+        System.session_set.append(admin_session)        
+        System.session_set.append(user_session)
+
+        with self.assertRaises(NotAuthorizedError):
+            System.do("show_sessions", 
+                          session=user_session)
+
+
+    def test_show_sessions_raises_state_error(self):
+        print "test_show_sessions_raises_state_error"
+        admin_user=System.delegate.get_admin_user()
+        admin_role = System.delegate.get_role(val=Config.admin_role)
+        user_role = System.delegate.get_role(val=Config.user_role)
+
+        user = User(name=Name(val="me mine myself"),
+                                  email=Email(val="abc@gnu.org"),
+                                  roles=[user_role, admin_role])
+
+        System.delegate.add_user(user)           
+        admin_session = Session(user=admin_user, role=admin_role, key="12345")
+        user_session = Session(user=user, role=user_role, key="abcde")
+
+        # sessions not appended to session set
+        # System.session_set.append(admin_session)        
+        # System.session_set.append(user_session)
+
+        with self.assertRaises(StateError):
+            System.do("show_sessions", 
+                          session=admin_session)
+
+#+END_SRC
+
+
+** Operations Table
+    Each operation has a corresponding implementation defined as a class. 
+ #+NAME: ops_table
+ #+BEGIN_SRC python                                                                          
+ops_table = {'login_first_step': LoginFirstStep,
+             'login_second_step': LoginSecondStep,
+             'logout': Logout,
+             'add_user': AddUser,
+             'show_users': ShowUsers,
+             'show_user_details': ShowUserDetails,
+             'show_user_details': ShowUserDetails,
+             'set_name': SetName,
+             'set_email': SetEmail,
+             'get_user_by_email': GetUserByEmail,
+             'del_user': DelUser,
+             'get_role_set': GetRoleSet,
+             'get_roles_of_user': GetRolesOfUser,
+             'add_role_to_user': AddRoleToUser,
+             'del_role_of_user': DelRoleOfUser,
+             'show_sessions': ShowSessions
+            }
+
+#+END_SRC
+
+
+* Infra                                                         :boilerplate:
+
+** Sources
+*** Imports 
+#+NAME: imports_for_sources
+#+BEGIN_SRC python
+# -*- coding: utf-8 -*-
+from runtime.config.config import Config
+from runtime.exceptions.custom_exceptions import *
+
+#+END_SRC
+
+
+** Tests
+*** Imports 
+#+NAME: imports_for_tests
+#+BEGIN_SRC python
+# -*- coding: utf-8 -*-
+import unittest
+from flask_testing import TestCase
+from sqlalchemy.exc import IntegrityError
+from runtime.system.system import *
+from runtime.system.persistence_delegate import *
+from runtime.rest.app import create_app
+
+config = {
+    'SQLALCHEMY_DATABASE_URI': ''
+}
+
+#+end_src
+
+*** Running tests
+#+NAME: run_test_cases
+#+BEGIN_SRC python
+if __name__ == '__main__':
+    unittest.main()
+
+#+END_SRC
+
+
+
+* Tangling                                                      :boilerplate:
+
+** Sources
+#+BEGIN_SRC python :tangle system.py :eval no :noweb yes
+<<imports_for_sources>>
+<<class_system>>
+<<session_for_authorization>>
+<<arity_type_checks>>
+<<do_function>>
+<<class_login_first_step>>
+<<class_login_second_step>>
+<<class_logout>>
+<<class_add_user>>
+<<class_show_users>>
+<<class_show_user_details>>
+<<class_set_name>>
+<<class_set_email>>
+<<class_get_user_by_email>>
+<<class_del_user>>
+<<class_get_role_set>>
+<<class_get_roles_of_user>>
+<<class_add_role_to_user>>
+<<class_del_role_of_user>>
+<<class_show_sessions>>
+<<ops_table>>
+
+#+END_SRC
+
+** Tests
+#+BEGIN_SRC python :tangle test_system.py :eval no :noweb yes
+<<imports_for_tests>>
+<<test_constructor>>
+<<test_show_sessions>>
+<<run_test_cases>>
+#+END_SRC
+
+

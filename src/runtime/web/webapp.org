@@ -1,0 +1,838 @@
+#+TITLE: Front End for User Directory Application
+#+AUTHOR: VLEAD
+#+DATE: [2017-02-06 Mon]
+#+SETUPFILE: ../../org-templates/level-2.org
+#+TAGS: boilerplate(b)
+#+EXCLUDE_TAGS: boilerplate
+#+OPTIONS: ^:nil
+
+* Introduction
+  The front end for the user directory application is implemeted here.  It is
+  implemented using client side hash(#) routing.  The window location's
+  hyperlink reference (href) is manipulated through the hash(#) to simulate the
+  state machine.  =http://part-url#login=, =http://part-url#logout=,
+  =http://part-url#get_all_users= are some of the routes this application
+  processes.  As a convention, in the above examples, the path after the
+  hash(#) - =login=, =logout= and =get_all_users= are referred to as hash
+  paths. 
+
+* System JS - $.Post equivalent to send AJAX
+#+NAME: post_json
+#+BEGIN_SRC js
+function post_json(url, data, callback, error_callback) {
+  $.ajax({
+    url: url,
+    type: "POST",
+    data: JSON.stringify(data),
+    contentType: "application/json; charset=utf-8",
+    success: callback,
+    error: function (request, status, error) {
+      console.log("error on: " + url + 
+                  "\n|data: " + data  + 
+                  "\n|RESPONSE: " + request.responseText + 
+                  "\n| status: " + status + 
+                  "\n| error: " + error);
+      //TODO: figure out which one of this is "semantically correct"
+      if (error_callback != null && error_callback != undefined && error_callback) {
+        error_callback(request, status, error);
+      }
+    }
+  });
+};
+
+#+END_SRC
+
+
+* System JS - Mock API
+#+NAME: mock_api
+#+BEGIN_SRC js
+var MockAPI = {
+  users: [],
+<<mock_add_user>>
+<<mock_get_all_users>>
+};
+#+END_SRC
+** Add User
+#+NAME: mock_add_user
+#+BEGIN_SRC js
+    add_user: function(name, email, cb) {
+        this.users.push({name: name, email: email});
+    },
+#+END_SRC
+
+** Get all users
+#+NAME: mock_get_all_users
+#+BEGIN_SRC js
+get_all_users: function(cb) {
+    cb(this.users);
+}
+#+END_SRC
+
+
+* System JS - Rest API
+#+NAME: rest_api
+#+BEGIN_SRC js
+var RestAPI = {
+<<rest_get_user_details>>
+<<rest_delete_user>>
+<<rest_add_user>>
+<<rest_get_all_users>>
+<<rest_login>>
+<<rest_logout>>
+};
+
+#+END_SRC
+** Get user Details
+#+NAME: rest_get_user_details
+#+BEGIN_SRC js
+  get_user_details: function(email, success_cb, error_cb) {
+    $.ajax({
+      url: '/show_user_details',
+      type: 'GET',
+      data: {
+        email: email
+      },
+      success: success_cb,
+      error: error_cb
+    });
+  },
+
+#+END_SRC   
+** Delete User
+#+NAME: rest_delete_user
+#+BEGIN_SRC js
+  delete_user: function(email, success_cb, error_cb) {
+    $.ajax({
+      url: '/del_user/' + email,
+      type: 'DELETE',
+      success: success_cb,
+      error: error_cb
+    });
+  },
+
+#+END_SRC
+** Add User
+#+NAME: rest_add_user
+#+BEGIN_SRC js
+  add_user: function(name, email, role, success_cb, error_cb) {
+    post_json("/add_user",
+              {name: name, email: email, role: role},
+              success_cb,
+              error_cb);
+  },
+
+#+END_SRC
+   
+** Get all users
+#+NAME: rest_get_all_users
+#+BEGIN_SRC js
+  get_all_users: function (cb) {
+    $.get("/show_users",
+          function(data) { console.log(data); cb(data) });
+  },
+
+#+END_SRC
+
+** Login
+#+NAME: rest_login
+#+BEGIN_SRC js
+  login: function() {
+    window.location.href = "/login"
+  },
+
+#+END_SRC
+
+** Logout
+#+NAME: rest_logout
+#+BEGIN_SRC js
+  logout: function(role, success_cb, failure_cb) {
+    window.location.href = "/logout";
+  }
+
+#+END_SRC
+
+
+* System JS - Window, # handling
+
+Call =register_onhashchange_handlers= to attach a handler.
+
+Parameters:
+handler_functions :: { hash_path :: function() {} }
+whose keys are the hash strings and the values
+are the handler.
+
+
+Call =navigate= to navigate to a path
+Parameters:
+path :: String
+
+navigates to given path
+
+#+NAME: hash_handler
+#+BEGIN_SRC js
+function navigate(path) {
+  var current = window.location.href;
+  window.location.href = current.replace(/#(.*)$/, '') + '#' + path;
+};
+
+//strip # from window.location.hash
+function get_window_hash_path() {
+  return location.hash.substring(1);
+};
+
+function register_onhashchange_handlers(handler_functions) {
+  $(window).on("hashchange", function(e) {
+    //strip hash out
+    hash_path = get_window_hash_path();
+    console.log("new hash: ", hash_path);
+    //we use hasOwnProperty since we need to check if a handler is 
+    // defined for the hash_path
+    //object has it, not its parents (in the prototype chain)
+    if (handler_functions.hasOwnProperty(hash_path)) {
+      //invoke said handler function
+      handler_functions[hash_path]();
+    } else {
+      console.warn(`no handler for ${hash_path}`);
+    }
+  });
+};
+
+#+END_SRC
+
+* User JS - Introduction
+  User code that uses our library to build an API.  User code: Pick between
+  REST and Mock API, setup # handlers for views.
+
+* User JS - Model State
+#+NAME: model_state
+
+#+BEGIN_SRC js
+function make_state_object() {
+  private_state = {
+    current_user: null
+  };
+  
+  state_obj = {
+    set_current_user: function(user) { private_state.current_user = user; },
+    get_current_user: function() { console.assert(private_state.current_user != null); return this.current_user; }
+  };
+  
+  return state_obj;
+};
+
+//have a global STATE object that has all of the model state
+STATE = make_state_object();
+
+#+END_SRC
+
+
+* User JS - Pick API choice (REST V/S Mock)
+#+NAME: api_choice
+#+BEGIN_SRC js
+var API = RestAPI;
+
+#+END_SRC
+
+
+* User JS - Window onload: setup # handlers, start from register
+#+NAME: window_onload
+#+BEGIN_SRC js
+function is_logged_in() {
+  return document.cookie.indexOf("session") != -1;
+}
+
+window.onload = function() {
+  register_onhashchange_handlers({
+    index: index_handler,
+    get_all_users: get_all_users_handler,
+    add_user: add_user_handler,
+    home: home_handler,
+    delete_user: delete_user_handler});
+  
+  // Hashes available when not logged in (authorized)
+  var unauth_available_hashes = ["index"];
+
+  //TODO: figure out why this does not trigger onhashchange
+  //TRIAL: check if preventing race condition helps
+  let current_hash = get_window_hash_path();
+  if (current_hash === "") {
+    console.log("defaulting #url to get_all_users");
+    
+    //send logged in users to home, others to index
+    if (is_logged_in()) {
+      current_hash = "home";
+    }
+    else {
+      current_hash = "index";
+    }
+  }
+
+  console.log("navigating to: #" + current_hash);
+  
+  // If the hash is available to everyone, or if the user
+  // is logged in, give them access
+  if (unauth_available_hashes.indexOf(current_hash) > -1  ||
+      is_logged_in()) {
+    navigate(current_hash);
+  }
+  else {
+    //by default, if unauthorized, send to index page
+    naviagte("index");
+  }
+
+  //HACK: I don't know why this is needed for the first hash change.
+  //Figure it out
+  $(window).trigger("hashchange");
+};
+
+#+END_SRC
+
+All components that are part of our single page application go here
+* User JS - Hide all containers
+#+NAME: component_auxiliary
+#+BEGIN_SRC js
+//use to hide all containers before displaying another container
+function hide_all_containers() {
+  // TODO: consider refactoring to addClass in a loop
+  $('#get-all-users-container').addClass("hidden");
+  $('#add-user-container').addClass("hidden");
+  $('#delete-user-container').addClass("hidden");
+  $('#home-container').addClass("hidden");
+  $('#index-container').addClass("hidden");
+  $('#user-details-result-container').addClass("hidden");
+}
+
+#+END_SRC
+
+* COMMENT User Component - Register
+
+#+NAME: register_html
+#+BEGIN_SRC html
+<div id = "register-container" class="hidden">
+  <form>
+    <label> Username </label>
+    <input type="text" name="username"/>
+    <label> Password </label>
+    <input type="text" name="password"/>
+    <label> Email </label>
+    <input type="text" name="email"/>
+    <input type="submit" name="register" />
+  </form>
+  <button onclick="window.location.hash='home'"> Home </button>
+</div>
+
+#+END_SRC
+
+#+NAME: register_handler
+#+BEGIN_SRC js
+function register_handler() {
+    hide_all_containers()
+    $("#register-container").removeClass("hidden");
+}
+#+END_SRC
+
+* COMMENT User Component - Login
+
+#+NAME: login_html
+#+BEGIN_SRC html
+<div id="login-container" class="hidden">
+  <form>
+    <label>Username</label>
+    <input type="text"/>
+    <label>Password</label>
+    <input type="text"/>
+  </form>
+  <button onclick="window.location.hash='home'"> Home </button>
+</div>
+#+END_SRC
+
+#+NAME: login_handler
+#+BEGIN_SRC js
+function login_handler() {
+    hide_all_containers();
+    $("#login-container").removeClass("hidden");
+}
+#+END_SRC
+
+* User Component - Get all Users
+#+NAME: get_all_users_html
+#+BEGIN_SRC html
+  <div id="get-all-users-container" class="hidden">
+    <ul>
+      <li>
+        <label id="get-all-users-error-box" style="color: #FF5722"></label>
+        <label id="get-all-users-info-box" style="color: #26C6DA"></label>
+      </li>
+    </ul>
+    <ul id="users-list">
+    </ul>
+    <button onclick="window.location.hash='home'"> Home </button>
+  </div>
+
+#+END_SRC
+
+#+NAME: get_all_users_handler
+#+BEGIN_SRC js
+function make_li_for_user(user) {
+  console.dir(user);
+  
+  let delete_button =
+    "<a style='margin-left: 1em' onclick=user_list_delete(" +
+    "'" + user.email.val + "'" +
+    ")> Delete User </a>";
+
+  let user_details_button =
+    "<a style='margin-left: 1em' onclick=get_user_details_handler(" +
+    "'" + user.email.val + "'" +
+    ")> User Details </a>";
+
+  let roles = "";
+
+  for(var i = 0; i < user.roles.length; i++) {
+    roles += user.roles[i].val;
+    roles += " ";
+  }
+
+  var match = /\w+/.exec(user.email.val);
+  let id = 'user-details-' + match[0];
+  let details_ul = "<ul id=" + id + "></ul>";
+
+  let li = $("<li style='margin-bottom: 50px' >" + "Name: " +
+             user.name.val +
+             " | Email: " +
+             user.email.val +
+             user_details_button + 
+             delete_button + 
+             details_ul + 
+             "</li>"
+            );
+  return li;
+}
+
+function user_list_delete(email) {
+  let error_box = $("#get-all-users-error-box");
+  let info_box = $("#get-all-users-info-box");
+
+  error_box.text("");
+  info_box.text("");
+  
+  API.delete_user(email, 
+                  function(request) {
+                    console.group("user_list_delete");
+                    console.log(request);
+
+                    if (request.status === "failure") {
+                      error_box.text(request.msg);
+                    }
+
+                    else {
+                      info_box.text("User " + email + " successfully deleted");
+                      //TODO: use client-side flash for this message
+                      console.log("User successfully deleted");
+                      //trigger page reload
+                      //FIXME: currently forcing' page reload
+                    }
+
+                    $(window).trigger("hashchange");
+                    navigate("get_all_users");
+                    console.groupEnd();
+                  }, 
+
+                  function(request) {
+                    $("get-all-users-error-box").val(request.responseText);
+                  });
+};
+
+
+function get_all_users_handler() {
+  hide_all_containers();
+
+  var container = $('#get-all-users-container');
+  container.removeClass("hidden");
+
+  let error_box = $("#get-all-users-error-box");
+  let info_box = $("#get-all-users-info-box");
+
+  error_box.text("");
+  info_box.text("");
+  
+  API.get_all_users(function(users) {
+    console.group("get_all_users callback");
+    console.dir(users);
+    let ul = $('#get-all-users-container #users-list');
+    ul.empty(); //TODO: slower than removing nodes
+    for(var i = 0; i < users.length; ++i) {
+      let user = users[i];
+      let li = make_li_for_user(user);
+      ul.append(li);
+    }
+    console.groupEnd();
+  });
+};
+
+#+END_SRC
+
+* User Component - Add User
+#+NAME: add_user_html
+#+BEGIN_SRC html
+<div id='add-user-container'>
+  <ul class="no-bullets">
+
+    <li>
+      <label id="add-user-error-box" style="color: #FF5722"></label>
+      <label id="add-user-info-box" style="color: #26C6DA"></label>
+    </li>  
+    <li> 
+      <label> Name: </label>
+      <input type="text" id="add-user-name"></input>
+    </li>
+    <li>
+      <label> Email: </label>
+      <input type="text" id="add-user-email"></input>
+    </li>
+    <li>
+      <button id="add-user-button" onclick="add_user_callback()"> Add User </button>
+    </li>
+    
+    <li>
+      <button onclick="window.location.hash='home'"> Go to Home </button>
+    </li>
+  </ul>
+</div>
+
+#+END_SRC
+
+#+NAME: add_user_handler
+#+BEGIN_SRC js
+function add_user_handler() {
+      hide_all_containers();
+      
+      $("#add-user-info-box").text("");
+      $("#add-user-error-box").text("");
+      $("#add-user-container").removeClass("hidden");
+}
+  
+function add_user_callback() {
+  console.log("add user callback called");
+  
+  let name = $('#add-user-name').val();
+  let email = $('#add-user-email').val();
+  //TODO: once the API is fixed, we don't need to send this over
+  let role_id = "user";
+  
+  let error_box = $("#add-user-error-box");
+  let info_box = $("#add-user-info-box");
+  
+  error_box.text("");
+  info_box.text("");
+  
+  if (name === "") {
+    error_box.text("Please fill in name");
+    return;
+  }
+  else if (email === "") {
+    error_box.text("Please fill in email");
+    return;
+  }
+  
+  function success_callback(req) {
+    console.log(req);
+    if (req.status === "failure") {
+      error_box.text(req.msg);
+    }
+    else {
+      info_box.text("Success, user: " + name + " added.");
+    }
+  };
+  
+  function error_callback(request) {
+    //TODO: once API returns JSON, pretty print the json
+    //let error_json = JSON.parse(request.responseText);
+    error_box.text(request.responseText || 'Unable to find error');
+  };
+
+  API.add_user(name,
+               email,
+               role_id,
+               success_callback,
+               error_callback);
+};
+#+END_SRC
+
+* User Component - Delete User
+#+NAME: delete_user_html
+#+BEGIN_SRC html
+<div id="delete-user-container" class="hidden">
+  <h3> Delete User </h3>
+  <ul>    
+    <li>
+      <label id="delete-user-error-box" style="color: #FF5722"></label>
+      <label id="delete-user-info-box" style="color: #26C6DA"></label>
+    </li>
+
+    <li>
+      <label> Email ID </label>
+    </li>
+    <li>
+      <input type="text" id="delete-user-email-id"> </input>
+    </li>
+    <li>
+      <button onclick="delete_user_callback()"> Delete User </button>
+    </li>
+    <li>
+      <button onclick="window.location.hash='home'"> Home </button>
+    </li>
+
+  </ul>
+</div>
+
+#+END_SRC
+
+#+NAME: delete_user_handler
+#+BEGIN_SRC js
+function delete_user_handler() {
+  hide_all_containers();
+  
+  let error_box = $("#delete-user-error-box");
+  let info_box = $("#delete-user-info-box");
+  
+  error_box.text("");
+  info_box.text("");
+  
+  $("#delete-user-container").removeClass("hidden");
+}
+
+function delete_user_callback() {
+  let delete_email = $('#delete-user-email-id').val();
+  let error_box = $("#delete-user-error-box");
+  let info_box =  $("#delete-user-info-box");
+
+  error_box.text("");
+  info_box.text("");
+  
+  if (delete_email == "") {
+    console.error("delete email ID expected!");
+    error_box.text("delete email ID expected");
+    return;
+  };
+
+  function success_callback(req) {
+    console.log(req);
+    if (req.status === "failure") {
+      error_box.text(req.msg);
+    }
+    else {
+      info_box.text(delete_email + " deleted successfully");
+
+    }
+  };
+  
+  function error_cb(request) {
+    console.group("delete_user error callback");
+    console.dir(request);
+    /*
+      let error_json = JSON.parse(request.responseText);
+      console.dir(error_json);
+    ,*/
+    
+    //TODO: once you recieve JSON, extract the error
+    error_box.text(request.responseText);
+    console.groupEnd();
+  };
+
+  API.delete_user(delete_email, success_callback, error_cb);
+};
+
+#+END_SRC
+
+* User Component - User Details
+
+#+NAME: user_details_handler
+#+BEGIN_SRC js
+function make_li_for_user_details(str, value) {
+  console.group("make_li_for_user_details");
+  console.dir(str);
+  console.dir(value);
+
+  let li = $("<li style='margin-bottom: 50px' >" + str + ": " +
+             value + 
+             "</li>"
+            );
+  console.dir(li);
+  console.groupEnd();
+  return li;
+};
+
+
+function get_user_details_handler(email) {
+
+  function details_success_cb(user) {
+    console.group("get_all_users callback");
+    console.dir(user);
+
+    name = user.name.val;
+    email = user.email.val;
+    roles = user.roles;
+
+    var match = /\w+/.exec(email);
+    id = 'user-details-' + match[0];
+    console.dir('#get-all-users-container ' + '#' + id);
+
+    let ul = $('#get-all-users-container ' + '#' + id);
+
+    ul.empty();
+    ul.append(make_li_for_user_details("Name", name));
+    ul.append(make_li_for_user_details("Email", email));
+    for(var i = 0; i < roles.length; ++i) {
+      let role = roles[i];
+      let li = make_li_for_user_details("Role", role.val);
+      ul.append(li);
+    };
+    console.groupEnd();
+  };
+
+  function details_error_cb(xhr) {
+    console.log("error");
+  };
+
+  API.get_user_details(email, details_success_cb, details_error_cb);
+
+};
+
+#+END_SRC
+
+* User Component - Home
+  
+#+NAME: home_html
+#+BEGIN_SRC html
+<div id="home-container">
+  <ul>
+    <li><a onclick="window.location.hash='add_user'"> Add User </a></li>
+    <li><a onclick="window.location.hash='get_all_users'"> Get all users </a></li>
+    <li><a onclick="window.location.hash='delete_user'"> Delete User </a></li>
+    <li><a onclick="API.logout()"> Logout </a></li>
+  </ul>
+</div>
+#+END_SRC
+
+#+NAME: home_handler
+#+BEGIN_SRC js
+function home_handler() {
+  hide_all_containers();
+  $('#home-container').removeClass("hidden");
+}
+#+END_SRC
+
+* User Component - Index page
+#+NAME: index_html
+#+BEGIN_SRC html
+  <div id="index-container">
+    <ul>
+      <li><a onclick="login_onclick()""> Login </a></li>
+    </ul>
+  </div>
+
+#+END_SRC
+
+#+NAME: index_handler
+#+BEGIN_SRC js
+function index_handler() {
+  hide_all_containers();
+  $('#index-container').removeClass("hidden");
+};
+
+function login_onclick() {
+
+  if (is_logged_in()) {
+    current_hash = "home";
+  } else {
+    //TODO: make role customizable
+    API.login();
+  }
+};
+
+#+END_SRC
+
+  
+* HTML: Consolidated
+  
+We need to put the HTML files in a =templates= folder since we are returning the HTML file
+using =render_template= in flask. We will change this eventually to be served by our web server.
+
+Notice the =static/= in our URLs that is used to refer to our static files. We follow this convention
+so that when we are actually deploying this app, the static files can be served by apache/ngix/whatever
+
+#+BEGIN_SRC html :tangle index.html :eval no :noweb yes
+  <html>
+  <head>
+  
+  <script src="static/js/jquery-3.1.1.min.js"></script>
+  <script src="static/js/main.js"></script>
+  <link rel="stylesheet" href="static/css/main.css" />
+  </head>
+  <body>
+  <h1> Hello World </h1>
+  
+  <<get_all_users_html>>
+  <<add_user_html>>
+  <<delete_user_html>>
+  <<home_html>>
+  <<index_html>>
+  </body>
+  </html>
+
+#+END_SRC
+
+* CSS : Consolidated
+
+#+BEGIN_SRC css :tangle static/css/main.css
+  body {
+      background-color: #EFEFEF;
+      padding-left: 80px;
+      padding-right: 80px;
+      padding-top: 20px;
+      font-family: monospace;
+  }
+  
+  input, ul, button, label {
+      font-size: 1.2em;
+      font-family: "Droid Sans", Sans-Serif;
+  }
+  
+  ul {
+      list-style-type: none;
+  }
+  
+  ul li {
+      margin-bottom: 1em;
+  }
+  
+  #add-user-container {
+      max-width: 500px;
+  }
+  .hidden {
+      display: none;
+  }
+#+END_SRC
+* JS: Consolidated
+#+BEGIN_SRC js :tangle static/js/main.js :eval no :noweb yes
+
+// ***System code***
+<<post_json>>
+<<mock_api>>
+<<rest_api>>
+<<hash_handler>>
+
+// ***User code***
+
+<<api_choice>>
+
+<<component_auxiliary>>
+<<get_all_users_handler>>
+<<add_user_handler>>
+<<home_handler>>
+<<index_handler>>
+<<delete_user_handler>>
+<<user_details_handler>>
+<<window_onload>>
+#+END_SRC
